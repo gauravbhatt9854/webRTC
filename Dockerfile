@@ -19,5 +19,5 @@ RUN npm run build
 # Expose port 4173 (Vite preview default)
 EXPOSE 4173
 
-# Start the app using Vite preview
-CMD ["npm", "run", "preview"]
+# Start the app using Vite preview on all network interfaces
+CMD ["npm", "run", "preview", "--", "--port", "4173", "--host"]
