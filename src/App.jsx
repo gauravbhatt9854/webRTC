@@ -12,7 +12,12 @@ function App() {
   useEffect(() => {
     socketRef.current = io(import.meta.env.VITE_SIGNALING_SERVER)
 
-    // Receive offer from the other client
+    // Second client starts the offer
+    socketRef.current.on("initiate-call", () => {
+      startOffer()
+    })
+
+    // Receive offer
     socketRef.current.on("offer", async (offer) => {
       if (!pcRef.current) pcRef.current = createPeerConnection()
 
@@ -27,13 +32,13 @@ function App() {
       socketRef.current.emit("answer", answer)
     })
 
-    // Receive answer from the other client
+    // Receive answer
     socketRef.current.on("answer", async (answer) => {
       const pc = pcRef.current
       if (pc) await pc.setRemoteDescription(answer)
     })
 
-    // Receive ICE candidate
+    // Receive ICE candidates
     socketRef.current.on("ice-candidate", async (candidate) => {
       const pc = pcRef.current
       if (pc && candidate) await pc.addIceCandidate(candidate)
@@ -67,16 +72,25 @@ function App() {
 
   const startCall = async () => {
     setStarted(true)
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    localVideoRef.current.srcObject = stream
+
+    // Notify server we are ready
+    socketRef.current.emit("ready")
+  }
+
+  // Only second client executes this to create the offer
+  const startOffer = async () => {
     if (!pcRef.current) pcRef.current = createPeerConnection()
     const pc = pcRef.current
 
-    // Get local stream
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    localVideoRef.current.srcObject = stream
+    const stream = localVideoRef.current.srcObject || await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    if (!localVideoRef.current.srcObject) localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(track => pc.addTrack(track, stream))
 
-    // Create offer automatically only if another client exists
-    socketRef.current.emit("ready") // optional for multi-client check
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    socketRef.current.emit("offer", offer)
   }
 
   return (
