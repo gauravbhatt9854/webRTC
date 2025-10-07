@@ -10,15 +10,13 @@ function App() {
   const [started, setStarted] = useState(false)
 
   useEffect(() => {
-    // Connect to signaling server
     socketRef.current = io(import.meta.env.VITE_SIGNALING_SERVER)
 
-    // Receive offer
+    // Receive offer from the other client
     socketRef.current.on("offer", async (offer) => {
       if (!pcRef.current) pcRef.current = createPeerConnection()
 
       const pc = pcRef.current
-
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       localVideoRef.current.srcObject = stream
       stream.getTracks().forEach(track => pc.addTrack(track, stream))
@@ -29,7 +27,7 @@ function App() {
       socketRef.current.emit("answer", answer)
     })
 
-    // Receive answer
+    // Receive answer from the other client
     socketRef.current.on("answer", async (answer) => {
       const pc = pcRef.current
       if (pc) await pc.setRemoteDescription(answer)
@@ -56,12 +54,10 @@ function App() {
       ]
     })
 
-    // Set remote stream
     pc.ontrack = (event) => {
       remoteVideoRef.current.srcObject = event.streams[0]
     }
 
-    // Send ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) socketRef.current.emit("ice-candidate", event.candidate)
     }
@@ -74,19 +70,18 @@ function App() {
     if (!pcRef.current) pcRef.current = createPeerConnection()
     const pc = pcRef.current
 
+    // Get local stream
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     localVideoRef.current.srcObject = stream
     stream.getTracks().forEach(track => pc.addTrack(track, stream))
 
-    // Create offer only if we are the first user starting the call
-    const offer = await pc.createOffer()
-    await pc.setLocalDescription(offer)
-    socketRef.current.emit("offer", offer)
+    // Create offer automatically only if another client exists
+    socketRef.current.emit("ready") // optional for multi-client check
   }
 
   return (
-    <div style={{ display: "flex", gap: "10px", flexDirection: "column", alignItems: "center", marginTop: "20px" }}>
-      <div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "20px" }}>
+      <div style={{ display: "flex", gap: "10px" }}>
         <video ref={localVideoRef} autoPlay playsInline muted width={300} />
         <video ref={remoteVideoRef} autoPlay playsInline width={300} />
       </div>
