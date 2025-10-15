@@ -1,51 +1,73 @@
-import './App.css'
-import { useState, useRef, useEffect } from 'react'
-import { io } from 'socket.io-client'
+import "./App.css";
+import { useState, useRef, useEffect } from "react";
+import { io } from "socket.io-client";
 
 function App() {
-  const localVideoRef = useRef()
-  const remoteVideoRef = useRef()
-  const pcRef = useRef(null)
-  const socketRef = useRef(null)
-  const [started, setStarted] = useState(false)
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const socketRef = useRef(null);
+  const [started, setStarted] = useState(false);
+  const [connectedUsers, setConnectedUsers] = useState([]);
 
   useEffect(() => {
-    socketRef.current = io(import.meta.env.VITE_SIGNALING_SERVER)
+    const socket = io(import.meta.env.VITE_SIGNALING_SERVER);
+    socketRef.current = socket;
 
-    // Second client starts the offer
-    socketRef.current.on("initiate-call", () => {
-      startOffer()
-    })
+    console.log("🟢 Connected to signaling server");
 
-    // Receive offer
-    socketRef.current.on("offer", async (offer) => {
-      if (!pcRef.current) pcRef.current = createPeerConnection()
+    // Update connected users
+    socket.on("connected-users", (clients) => {
+      console.log("👥 Connected users:", clients);
+      setConnectedUsers(clients);
+    });
 
-      const pc = pcRef.current
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      localVideoRef.current.srcObject = stream
-      stream.getTracks().forEach(track => pc.addTrack(track, stream))
+    // Start call offer (from second client)
+    socket.on("initiate-call", () => {
+      console.log("📞 Initiate call triggered");
+      startOffer();
+    });
 
-      await pc.setRemoteDescription(offer)
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
-      socketRef.current.emit("answer", answer)
-    })
+    // Handle offer
+    socket.on("offer", async (offer) => {
+      console.log("📨 Offer received");
+      if (!pcRef.current) pcRef.current = createPeerConnection();
 
-    // Receive answer
-    socketRef.current.on("answer", async (answer) => {
-      const pc = pcRef.current
-      if (pc) await pc.setRemoteDescription(answer)
-    })
+      const pc = pcRef.current;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      localVideoRef.current.srcObject = stream;
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-    // Receive ICE candidates
-    socketRef.current.on("ice-candidate", async (candidate) => {
-      const pc = pcRef.current
-      if (pc && candidate) await pc.addIceCandidate(candidate)
-    })
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", answer);
+    });
 
-    return () => socketRef.current.disconnect()
-  }, [])
+    // Handle answer
+    socket.on("answer", async (answer) => {
+      console.log("📩 Answer received");
+      const pc = pcRef.current;
+      if (pc) await pc.setRemoteDescription(answer);
+    });
+
+    // Handle ICE candidate
+    socket.on("ice-candidate", async (candidate) => {
+      console.log("❄️ ICE candidate received");
+      const pc = pcRef.current;
+      if (pc && candidate) await pc.addIceCandidate(candidate);
+    });
+
+    // Clean up on unmount
+    return () => {
+      console.log("🔴 Disconnecting...");
+      socket.disconnect();
+      pcRef.current?.close();
+    };
+  }, []);
 
   const createPeerConnection = () => {
     const pc = new RTCPeerConnection({
@@ -54,54 +76,91 @@ function App() {
         {
           urls: import.meta.env.VITE_TURN_URL,
           username: import.meta.env.VITE_TURN_USERNAME,
-          credential: import.meta.env.VITE_TURN_PASSWORD
-        }
-      ]
-    })
+          credential: import.meta.env.VITE_TURN_PASSWORD,
+        },
+      ],
+    });
 
     pc.ontrack = (event) => {
-      remoteVideoRef.current.srcObject = event.streams[0]
-    }
+      console.log("🎥 Remote stream received");
+      remoteVideoRef.current.srcObject = event.streams[0];
+    };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) socketRef.current.emit("ice-candidate", event.candidate)
-    }
+      if (event.candidate) {
+        console.log("📡 Sending ICE candidate");
+        socketRef.current.emit("ice-candidate", event.candidate);
+      }
+    };
 
-    return pc
-  }
+    return pc;
+  };
 
   const startCall = async () => {
-    setStarted(true)
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    localVideoRef.current.srcObject = stream
+    console.log("🟢 Starting call...");
+    setStarted(true);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    localVideoRef.current.srcObject = stream;
+    socketRef.current.emit("ready");
+  };
 
-    // Notify server we are ready
-    socketRef.current.emit("ready")
-  }
-
-  // Only second client executes this to create the offer
   const startOffer = async () => {
-    if (!pcRef.current) pcRef.current = createPeerConnection()
-    const pc = pcRef.current
+    console.log("📞 Creating offer...");
+    if (!pcRef.current) pcRef.current = createPeerConnection();
+    const pc = pcRef.current;
 
-    const stream = localVideoRef.current.srcObject || await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    if (!localVideoRef.current.srcObject) localVideoRef.current.srcObject = stream
-    stream.getTracks().forEach(track => pc.addTrack(track, stream))
+    const stream =
+      localVideoRef.current.srcObject ||
+      (await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      }));
 
-    const offer = await pc.createOffer()
-    await pc.setLocalDescription(offer)
-    socketRef.current.emit("offer", offer)
-  }
+    if (!localVideoRef.current.srcObject) {
+      localVideoRef.current.srcObject = stream;
+    }
+
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socketRef.current.emit("offer", offer);
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "20px" }}>
-      <div style={{ display: "flex", gap: "10px" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        marginTop: "20px",
+      }}
+    >
+      <h2>⚡ Simple WebRTC Call App</h2>
+
+      <div className="users">
+        {connectedUsers.map((user, index) => (
+          <h4 key={user}>
+            👤 User {index + 1}: <code>{user}</code>
+          </h4>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: "10px", margin: "20px" }}>
         <video ref={localVideoRef} autoPlay playsInline muted width={300} />
         <video ref={remoteVideoRef} autoPlay playsInline width={300} />
       </div>
-      {!started && <button onClick={startCall}>Start Call</button>}
+
+      {!started && (
+        <button onClick={startCall} style={{ padding: "10px 20px" }}>
+          Start Call
+        </button>
+      )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
