@@ -10,23 +10,23 @@ function App() {
   const socketRef = useRef(null);
   const [started, setStarted] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState([]);
+  const [targetUser, setTargetUser] = useState(null); // track who we are calling
 
   useEffect(() => {
     const socket = io(import.meta.env.VITE_SIGNALING_SERVER);
     socketRef.current = socket;
 
-    // Get list of connected users
-    socket.on("connected-users", (clients) => {
-      setConnectedUsers(clients);
+    socket.on("connected-users", (clients) => setConnectedUsers(clients));
+
+    // When callee receives start-call
+    socket.on("initiate-call", (callerId) => {
+      setTargetUser(callerId);
+      startOffer(callerId); // pass callerId as target
     });
 
-    // Start call when server signals
-    socket.on("initiate-call", () => {
-      startOffer();
-    });
-
-    socket.on("offer", async (offer) => {
-      if (!pcRef.current) pcRef.current = createPeerConnection();
+    socket.on("offer", async ({ offer, callerId }) => {
+      setTargetUser(callerId);
+      if (!pcRef.current) pcRef.current = createPeerConnection(callerId);
 
       const pc = pcRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -36,15 +36,15 @@ function App() {
       await pc.setRemoteDescription(offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      socket.emit("answer", answer);
+      socket.emit("answer", { answer, targetUserId: callerId });
     });
 
-    socket.on("answer", async (answer) => {
+    socket.on("answer", async ({ answer }) => {
       const pc = pcRef.current;
       if (pc) await pc.setRemoteDescription(answer);
     });
 
-    socket.on("ice-candidate", async (candidate) => {
+    socket.on("ice-candidate", async ({ candidate, from }) => {
       const pc = pcRef.current;
       if (pc && candidate) await pc.addIceCandidate(candidate);
     });
@@ -55,7 +55,7 @@ function App() {
     };
   }, []);
 
-  const createPeerConnection = () => {
+  const createPeerConnection = (targetUserId) => {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -72,8 +72,8 @@ function App() {
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current.emit("ice-candidate", event.candidate);
+      if (event.candidate && targetUserId) {
+        socketRef.current.emit("ice-candidate", { candidate: event.candidate, targetUserId });
       }
     };
 
@@ -81,17 +81,17 @@ function App() {
   };
 
   const handleStartCall = async (targetUserId) => {
+    setTargetUser(targetUserId);
     setStarted(true);
+
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
 
-    // Emit to server: start call with this user
     socketRef.current.emit("start-call", targetUserId);
-    console.log("📨 Start call request sent to:", targetUserId);
   };
 
-  const startOffer = async () => {
-    if (!pcRef.current) pcRef.current = createPeerConnection();
+  const startOffer = async (targetUserId = targetUser) => {
+    if (!pcRef.current) pcRef.current = createPeerConnection(targetUserId);
     const pc = pcRef.current;
 
     const stream =
@@ -106,7 +106,7 @@ function App() {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socketRef.current.emit("offer", offer);
+    socketRef.current.emit("offer", { offer, targetUserId });
   };
 
   return (
@@ -131,7 +131,6 @@ function App() {
                 className="flex items-center justify-between bg-white/20 rounded-lg px-3 py-2 hover:bg-white/30 transition"
               >
                 <span>👤 {user}</span>
-                {/* Optional: call directly from list */}
                 <button
                   onClick={() => handleStartCall(user)}
                   className="bg-green-400 hover:bg-green-500 text-white px-3 py-1 rounded-full text-sm font-semibold transition"
