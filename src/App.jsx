@@ -36,7 +36,7 @@ function App() {
       </div>
 
       <ConnectedUsers
-        users={connectedUsers.filter((u) => u.socketId !== mySocketId)}
+        users={connectedUsers}
         onStartCall={startCall}
       />
 

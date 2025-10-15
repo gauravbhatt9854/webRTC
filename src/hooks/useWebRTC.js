@@ -26,7 +26,7 @@ export function useWebRTC(email) {
     });
 
     socket.on("connected-users", (users) => {
-      setConnectedUsers(users);
+      setConnectedUsers((prev)=> users);
       connectedUsersRef.current = users;
     });
 
