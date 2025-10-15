@@ -6,11 +6,12 @@ export function useWebRTC(email) {
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const socketRef = useRef(null);
+  const connectedUsersRef = useRef([]);
 
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [mySocketId, setMySocketId] = useState(null);
   const [started, setStarted] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { socketId, email }
+  const [incomingCall, setIncomingCall] = useState(null); // { socketId, email, offer }
   const [targetUser, setTargetUser] = useState(null);
 
   useEffect(() => {
@@ -26,16 +27,16 @@ export function useWebRTC(email) {
 
     socket.on("connected-users", (users) => {
       setConnectedUsers(users);
+      connectedUsersRef.current = users;
     });
 
     // Incoming call notification
-    socket.on("initiate-call", (callerId) => {
-      const caller = connectedUsers.find((u) => u.socketId === callerId);
-      setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown" });
+    socket.on("initiate-call", ({ callerId, offer }) => {
+      const caller = connectedUsersRef.current.find((u) => u.socketId === callerId);
+      setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
     });
 
     socket.on("offer", async ({ offer, callerId }) => {
-      setTargetUser(callerId);
       await handleReceiveOffer(offer, callerId);
     });
 
@@ -47,13 +48,13 @@ export function useWebRTC(email) {
       if (pcRef.current && candidate) await pcRef.current.addIceCandidate(candidate);
     });
 
-    socket.on("disconnect-call", () => endCall());
+    socket.on("disconnect-call", endCall);
 
     return () => {
       socket.disconnect();
       pcRef.current?.close();
     };
-  }, [email, connectedUsers]);
+  }, [email]);
 
   const createPeerConnection = (targetId) => {
     const pc = new RTCPeerConnection({
@@ -84,6 +85,7 @@ export function useWebRTC(email) {
     setTargetUser(targetId);
     setStarted(true);
 
+    pcRef.current?.close();
     const pc = createPeerConnection(targetId);
     pcRef.current = pc;
 
@@ -98,28 +100,17 @@ export function useWebRTC(email) {
 
   const acceptCall = async () => {
     if (!incomingCall) return;
-
-    const { socketId } = incomingCall;
+    const { socketId, offer } = incomingCall;
     setTargetUser(socketId);
-    setStarted(true);
 
-    const pc = createPeerConnection(socketId);
-    pcRef.current = pc;
-
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socketRef.current.emit("offer", { offer, targetUserId: socketId });
-
+    await handleReceiveOffer(offer, socketId);
     setIncomingCall(null);
   };
 
   const declineCall = () => setIncomingCall(null);
 
   const handleReceiveOffer = async (offer, callerId) => {
+    pcRef.current?.close();
     const pc = createPeerConnection(callerId);
     pcRef.current = pc;
 
