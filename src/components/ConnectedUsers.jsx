@@ -3,7 +3,7 @@ import { useState } from "react";
 export default function ConnectedUsers({ users, onStartCall }) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredUsers = users.filter(user =>
+  const filteredUsers = users.filter((user) =>
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -21,7 +21,7 @@ export default function ConnectedUsers({ users, onStartCall }) {
 
       <div className="max-h-64 sm:max-h-80 overflow-y-auto space-y-2">
         {filteredUsers.length > 0 ? (
-          filteredUsers.map(user => (
+          filteredUsers.map((user) => (
             <div
               key={user.socketId}
               className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white/20 rounded-lg px-3 py-2 hover:bg-white/30 transition gap-2 sm:gap-0"

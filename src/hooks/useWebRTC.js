@@ -30,7 +30,6 @@ export function useWebRTC(email) {
       connectedUsersRef.current = users;
     });
 
-    // Incoming call with offer
     socket.on("initiate-call", ({ callerId, offer }) => {
       const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
       setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
@@ -91,7 +90,6 @@ export function useWebRTC(email) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Emit 'initiate-call' with offer
     socketRef.current.emit("initiate-call", { targetId, offer });
   };
 
@@ -105,9 +103,6 @@ export function useWebRTC(email) {
   };
 
   const declineCall = () => {
-    if (incomingCall?.socketId) {
-      socketRef.current.emit("decline-call", { targetUserId: incomingCall.socketId });
-    }
     setIncomingCall(null);
   };
 
@@ -123,8 +118,8 @@ export function useWebRTC(email) {
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    socketRef.current.emit("answer", { answer, targetUserId: callerId });
 
+    socketRef.current.emit("answer", { answer, targetUserId: callerId });
     setStarted(true);
   };
 
