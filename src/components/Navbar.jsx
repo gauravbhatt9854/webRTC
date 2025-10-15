@@ -7,12 +7,11 @@ export default function Navbar() {
   const [tempEmail, setTempEmail] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // On mount, initialize tempEmail from context or localStorage
   useEffect(() => {
     const storedEmail = localStorage.getItem("userEmail");
     if (storedEmail) {
       setTempEmail(storedEmail);
-      if (!email) updateEmail(storedEmail); // sync context
+      if (!email) updateEmail(storedEmail);
     } else if (!email) {
       setDropdownOpen(true);
       setIsEditing(true);
@@ -25,26 +24,26 @@ export default function Navbar() {
       alert("Please enter a valid email!");
       return;
     }
-
-    // Update context and localStorage
     updateEmail(trimmed);
     localStorage.setItem("userEmail", trimmed);
-
     setIsEditing(false);
     setDropdownOpen(false);
   };
 
+  const handleCancel = () => {
+    const storedEmail = localStorage.getItem("userEmail") || "";
+    setTempEmail(storedEmail); // reset input
+    setDropdownOpen(false);
+  };
+
   return (
-    <nav className="flex justify-end items-center p-4 relative">
+    <nav className="flex justify-end items-center relative bg-white shadow-md rounded-b-lg">
       {/* Profile Button */}
       <button
-        onClick={() => {
-          if (!email) return; // don't allow closing if email is empty
-          setDropdownOpen(!dropdownOpen);
-        }}
-        className="flex items-center gap-2 px-3 py-2 rounded-full hover:bg-gray-200 transition"
+        onClick={() => setDropdownOpen(!dropdownOpen)}
+        className="flex items-center gap-2 px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 transition shadow-sm"
       >
-        <span className="font-medium text-gray-800">
+        <span className="font-medium text-gray-800 truncate max-w-xs">
           {email || "Enter your email"}
         </span>
         <svg
@@ -59,7 +58,7 @@ export default function Navbar() {
 
       {/* Dropdown */}
       {dropdownOpen && (
-        <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg text-black p-4 z-20">
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg text-black p-4 z-20 border border-gray-200">
           <div className="flex flex-col gap-3 w-full">
             <input
               type="email"
@@ -69,17 +68,15 @@ export default function Navbar() {
               className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
             <div className="flex justify-end gap-2">
-              {!email && (
-                <button
-                  disabled
-                  className="px-4 py-2 rounded bg-gray-200 text-gray-500 cursor-not-allowed"
-                >
-                  Cancel
-                </button>
-              )}
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 rounded bg-gray-300 text-gray-600 hover:bg-gray-400 transition shadow-sm"
+              >
+                Cancel
+              </button>
               <button
                 onClick={handleSave}
-                className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition"
+                className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm"
               >
                 Save
               </button>
