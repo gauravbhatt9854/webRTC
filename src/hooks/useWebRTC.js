@@ -11,7 +11,7 @@ export function useWebRTC(email) {
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [mySocketId, setMySocketId] = useState(null);
   const [started, setStarted] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { socketId, email, offer }
+  const [incomingCall, setIncomingCall] = useState(null);
   const [targetUser, setTargetUser] = useState(null);
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export function useWebRTC(email) {
       connectedUsersRef.current = users;
     });
 
-    // Incoming call
+    // Incoming call with offer
     socket.on("initiate-call", ({ callerId, offer }) => {
       const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
       setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
@@ -91,7 +91,7 @@ export function useWebRTC(email) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Notify target about incoming call
+    // Emit 'initiate-call' with offer
     socketRef.current.emit("initiate-call", { targetId, offer });
   };
 
