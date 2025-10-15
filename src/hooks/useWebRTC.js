@@ -7,6 +7,7 @@ export function useWebRTC(email) {
   const pcRef = useRef(null);
   const socketRef = useRef(null);
   const connectedUsersRef = useRef([]);
+  const iceQueueRef = useRef([]);
 
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [mySocketId, setMySocketId] = useState(null);
@@ -30,18 +31,21 @@ export function useWebRTC(email) {
       connectedUsersRef.current = users;
     });
 
-    // Incoming call with offer
-    socket.on("initiate-call", ({ callerId, offer }) => {
+    socket.on("offer", ({ callerId, offer }) => {
       const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
       setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
     });
 
     socket.on("answer", async ({ answer }) => {
-      if (pcRef.current) await pcRef.current.setRemoteDescription(answer);
+      if (pcRef.current && answer) await pcRef.current.setRemoteDescription(answer);
     });
 
     socket.on("ice-candidate", async ({ candidate }) => {
-      if (pcRef.current && candidate) await pcRef.current.addIceCandidate(candidate);
+      if (pcRef.current) {
+        await pcRef.current.addIceCandidate(candidate);
+      } else {
+        iceQueueRef.current.push(candidate);
+      }
     });
 
     socket.on("disconnect-call", endCall);
@@ -78,20 +82,21 @@ export function useWebRTC(email) {
   };
 
   const startCall = async (targetId) => {
-    console.log("Offer sent from caller to callee in client side " , targetId);
+    if (!targetId) return;
     setTargetUser(targetId);
+
     pcRef.current?.close();
-    const pc = createPeerConnection(targetId);
-    pcRef.current = pc;
+    pcRef.current = createPeerConnection(targetId);
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    // Emit 'initiate-call' with offer
+    const offer = await pcRef.current.createOffer();
+    await pcRef.current.setLocalDescription(offer);
+
     socketRef.current.emit("initiate-call", { targetId, offer });
+    setStarted(true);
   };
 
   const acceptCall = async () => {
@@ -99,8 +104,28 @@ export function useWebRTC(email) {
     const { socketId, offer } = incomingCall;
     setTargetUser(socketId);
 
-    await handleReceiveOffer(offer, socketId);
+    pcRef.current?.close();
+    pcRef.current = createPeerConnection(socketId);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideoRef.current.srcObject = stream;
+    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
+
+    await pcRef.current.setRemoteDescription(offer);
+
+    const answer = await pcRef.current.createAnswer();
+    await pcRef.current.setLocalDescription(answer);
+
+    socketRef.current.emit("answer", { answer, targetUserId: socketId });
+
+    // Process queued ICE candidates
+    while (iceQueueRef.current.length) {
+      const candidate = iceQueueRef.current.shift();
+      await pcRef.current.addIceCandidate(candidate);
+    }
+
     setIncomingCall(null);
+    setStarted(true);
   };
 
   const declineCall = () => {
@@ -108,23 +133,6 @@ export function useWebRTC(email) {
       socketRef.current.emit("decline-call", { targetUserId: incomingCall.socketId });
     }
     setIncomingCall(null);
-  };
-
-  const handleReceiveOffer = async (offer, callerId) => {
-    pcRef.current?.close();
-    const pc = createPeerConnection(callerId);
-    pcRef.current = pc;
-
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-    await pc.setRemoteDescription(offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socketRef.current.emit("answer", { answer, targetUserId: callerId });
-
-    setStarted(true);
   };
 
   const endCall = () => {
