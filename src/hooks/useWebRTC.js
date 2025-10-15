@@ -30,8 +30,8 @@ export function useWebRTC(email) {
       connectedUsersRef.current = users;
     });
 
-    socket.on("offer", async ({ offer, callerId }) => {
-      if (started) return; // Already in a call
+    // Incoming call with offer
+    socket.on("initiate-call", ({ callerId, offer }) => {
       const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
       setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
     });
@@ -50,7 +50,7 @@ export function useWebRTC(email) {
       socket.disconnect();
       pcRef.current?.close();
     };
-  }, [email, started]);
+  }, [email]);
 
   const createPeerConnection = (targetId) => {
     const pc = new RTCPeerConnection({
@@ -78,9 +78,8 @@ export function useWebRTC(email) {
   };
 
   const startCall = async (targetId) => {
-    if (started) return; // Already in a call
+    console.log("Offer sent from caller to callee in client side " , targetId);
     setTargetUser(targetId);
-
     pcRef.current?.close();
     const pc = createPeerConnection(targetId);
     pcRef.current = pc;
@@ -91,9 +90,8 @@ export function useWebRTC(email) {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
-    // ✅ Correct payload key: targetUserId
-    socketRef.current.emit("initiate-call", { targetUserId: targetId, offer });
+    // Emit 'initiate-call' with offer
+    socketRef.current.emit("initiate-call", { targetId, offer });
   };
 
   const acceptCall = async () => {
@@ -124,8 +122,8 @@ export function useWebRTC(email) {
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
     socketRef.current.emit("answer", { answer, targetUserId: callerId });
+
     setStarted(true);
   };
 
