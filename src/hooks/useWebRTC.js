@@ -8,10 +8,10 @@ export function useWebRTC(email) {
   const socketRef = useRef(null);
 
   const [connectedUsers, setConnectedUsers] = useState([]);
-  const [started, setStarted] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [targetUser, setTargetUser] = useState(null);
   const [mySocketId, setMySocketId] = useState(null);
+  const [started, setStarted] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null); // { socketId, email }
+  const [targetUser, setTargetUser] = useState(null);
 
   useEffect(() => {
     if (!email) return;
@@ -24,24 +24,19 @@ export function useWebRTC(email) {
       socket.emit("register-email", email);
     });
 
-    socket.on("connected-users", (clients) => setConnectedUsers(clients));
+    socket.on("connected-users", (users) => {
+      setConnectedUsers(users);
+    });
 
-    socket.on("initiate-call", (callerId) => setIncomingCall(callerId));
+    // Incoming call notification
+    socket.on("initiate-call", (callerId) => {
+      const caller = connectedUsers.find((u) => u.socketId === callerId);
+      setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown" });
+    });
 
     socket.on("offer", async ({ offer, callerId }) => {
       setTargetUser(callerId);
-      if (!pcRef.current) pcRef.current = createPeerConnection(callerId);
-
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
-
-      await pcRef.current.setRemoteDescription(offer);
-      const answer = await pcRef.current.createAnswer();
-      await pcRef.current.setLocalDescription(answer);
-      socket.emit("answer", { answer, targetUserId: callerId });
-      setStarted(true);
-      setIncomingCall(null);
+      await handleReceiveOffer(offer, callerId);
     });
 
     socket.on("answer", async ({ answer }) => {
@@ -52,15 +47,15 @@ export function useWebRTC(email) {
       if (pcRef.current && candidate) await pcRef.current.addIceCandidate(candidate);
     });
 
-    socket.on("cut-call", () => endCall());
+    socket.on("disconnect-call", () => endCall());
 
     return () => {
       socket.disconnect();
       pcRef.current?.close();
     };
-  }, [email]);
+  }, [email, connectedUsers]);
 
-  const createPeerConnection = (targetUserId) => {
+  const createPeerConnection = (targetId) => {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -72,73 +67,81 @@ export function useWebRTC(email) {
       ],
     });
 
-    pc.ontrack = (event) => (remoteVideoRef.current.srcObject = event.streams[0]);
+    pc.ontrack = (event) => {
+      remoteVideoRef.current.srcObject = event.streams[0];
+    };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && targetUserId) {
-        socketRef.current.emit("ice-candidate", { candidate: event.candidate, targetUserId });
+      if (event.candidate && targetId) {
+        socketRef.current.emit("ice-candidate", { candidate: event.candidate, targetUserId: targetId });
       }
     };
 
     return pc;
   };
 
-  const startCall = async (targetUserId) => {
-    setTargetUser(targetUserId);
+  const startCall = async (targetId) => {
+    setTargetUser(targetId);
     setStarted(true);
+
+    const pc = createPeerConnection(targetId);
+    pcRef.current = pc;
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-
-    socketRef.current.emit("start-call", targetUserId);
-  };
-
-  const acceptCall = async () => {
-    if (!incomingCall) return;
-    startOffer(incomingCall);
-  };
-
-  const declineCall = () => setIncomingCall(null);
-
-  const startOffer = async (targetUserId = targetUser) => {
-    if (!pcRef.current) pcRef.current = createPeerConnection(targetUserId);
-    const pc = pcRef.current;
-
-    const stream =
-      localVideoRef.current.srcObject ||
-      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
-
-    if (!localVideoRef.current.srcObject) localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socketRef.current.emit("offer", { offer, targetUserId });
+    socketRef.current.emit("offer", { offer, targetUserId: targetId });
+  };
+
+  const acceptCall = async () => {
+    if (!incomingCall) return;
+
+    const { socketId } = incomingCall;
+    setTargetUser(socketId);
     setStarted(true);
+
+    const pc = createPeerConnection(socketId);
+    pcRef.current = pc;
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideoRef.current.srcObject = stream;
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socketRef.current.emit("offer", { offer, targetUserId: socketId });
+
     setIncomingCall(null);
   };
 
+  const declineCall = () => setIncomingCall(null);
+
+  const handleReceiveOffer = async (offer, callerId) => {
+    const pc = createPeerConnection(callerId);
+    pcRef.current = pc;
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideoRef.current.srcObject = stream;
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socketRef.current.emit("answer", { answer, targetUserId: callerId });
+
+    setStarted(true);
+  };
+
   const endCall = () => {
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    setStarted(false);
+    pcRef.current?.close();
+    pcRef.current = null;
     setTargetUser(null);
-
-    if (localVideoRef.current?.srcObject) {
-      localVideoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-      localVideoRef.current.srcObject = null;
-    }
-
-    if (remoteVideoRef.current?.srcObject) {
-      remoteVideoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-      remoteVideoRef.current.srcObject = null;
-    }
-
-    if (socketRef.current && targetUser) {
-      socketRef.current.emit("cut-call", { targetUserId: targetUser });
-    }
+    setStarted(false);
+    localVideoRef.current.srcObject = null;
+    remoteVideoRef.current.srcObject = null;
   };
 
   return {

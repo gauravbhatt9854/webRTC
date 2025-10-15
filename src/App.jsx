@@ -42,6 +42,7 @@ function App() {
 
       {incomingCall && (
         <IncomingCallModal
+          callerEmail={incomingCall.email}
           acceptCall={acceptCall}
           declineCall={declineCall}
         />

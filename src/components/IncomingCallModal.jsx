@@ -1,18 +1,19 @@
-export default function IncomingCallModal({ acceptCall, declineCall }) {
+export default function IncomingCallModal({ callerEmail, acceptCall, declineCall }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white text-black p-6 rounded-lg flex flex-col gap-4 items-center">
-        <p>📞 Incoming call...</p>
-        <div className="flex gap-4">
+      <div className="bg-white text-black rounded-xl p-6 w-80 text-center shadow-lg">
+        <h2 className="text-lg font-bold mb-2">Incoming Call</h2>
+        <p className="mb-4">📞 {callerEmail} is calling you</p>
+        <div className="flex justify-center gap-4">
           <button
             onClick={acceptCall}
-            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
           >
             Accept
           </button>
           <button
             onClick={declineCall}
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
           >
             Decline
           </button>
