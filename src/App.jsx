@@ -15,7 +15,6 @@ function App() {
     connectedUsers,
     started,
     incomingCall,
-    mySocketId,
     startCall,
     acceptCall,
     declineCall,
@@ -35,10 +34,7 @@ function App() {
         </p>
       </div>
 
-      <ConnectedUsers
-        users={connectedUsers}
-        onStartCall={startCall}
-      />
+      <ConnectedUsers users={connectedUsers} onStartCall={startCall} />
 
       {incomingCall && (
         <IncomingCallModal

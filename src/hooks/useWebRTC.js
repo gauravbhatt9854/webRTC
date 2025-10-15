@@ -26,18 +26,14 @@ export function useWebRTC(email) {
     });
 
     socket.on("connected-users", (users) => {
-      setConnectedUsers((prev)=> users);
+      setConnectedUsers(users);
       connectedUsersRef.current = users;
     });
 
-    // Incoming call notification
+    // Incoming call
     socket.on("initiate-call", ({ callerId, offer }) => {
-      const caller = connectedUsersRef.current.find((u) => u.socketId === callerId);
+      const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
       setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
-    });
-
-    socket.on("offer", async ({ offer, callerId }) => {
-      await handleReceiveOffer(offer, callerId);
     });
 
     socket.on("answer", async ({ answer }) => {
@@ -83,7 +79,6 @@ export function useWebRTC(email) {
 
   const startCall = async (targetId) => {
     setTargetUser(targetId);
-    setStarted(true);
 
     pcRef.current?.close();
     const pc = createPeerConnection(targetId);
@@ -91,11 +86,13 @@ export function useWebRTC(email) {
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socketRef.current.emit("offer", { offer, targetUserId: targetId });
+
+    // Notify target about incoming call
+    socketRef.current.emit("initiate-call", { targetId, offer });
   };
 
   const acceptCall = async () => {
@@ -107,7 +104,12 @@ export function useWebRTC(email) {
     setIncomingCall(null);
   };
 
-  const declineCall = () => setIncomingCall(null);
+  const declineCall = () => {
+    if (incomingCall?.socketId) {
+      socketRef.current.emit("decline-call", { targetUserId: incomingCall.socketId });
+    }
+    setIncomingCall(null);
+  };
 
   const handleReceiveOffer = async (offer, callerId) => {
     pcRef.current?.close();
@@ -116,7 +118,7 @@ export function useWebRTC(email) {
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
