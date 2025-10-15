@@ -1,6 +1,7 @@
 import "./App.css";
 import { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
+import VideoSection from "./components/VideoSection";
 
 function App() {
   const localVideoRef = useRef(null);
@@ -16,19 +17,16 @@ function App() {
 
     console.log("🟢 Connected to signaling server");
 
-    // Update connected users
     socket.on("connected-users", (clients) => {
       console.log("👥 Connected users:", clients);
       setConnectedUsers(clients);
     });
 
-    // Start call offer (from second client)
     socket.on("initiate-call", () => {
       console.log("📞 Initiate call triggered");
       startOffer();
     });
 
-    // Handle offer
     socket.on("offer", async (offer) => {
       console.log("📨 Offer received");
       if (!pcRef.current) pcRef.current = createPeerConnection();
@@ -47,21 +45,18 @@ function App() {
       socket.emit("answer", answer);
     });
 
-    // Handle answer
     socket.on("answer", async (answer) => {
       console.log("📩 Answer received");
       const pc = pcRef.current;
       if (pc) await pc.setRemoteDescription(answer);
     });
 
-    // Handle ICE candidate
     socket.on("ice-candidate", async (candidate) => {
       console.log("❄️ ICE candidate received");
       const pc = pcRef.current;
       if (pc && candidate) await pc.addIceCandidate(candidate);
     });
 
-    // Clean up on unmount
     return () => {
       console.log("🔴 Disconnecting...");
       socket.disconnect();
@@ -131,32 +126,50 @@ function App() {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        marginTop: "20px",
-      }}
-    >
-      <h2>⚡ Simple WebRTC Call App</h2>
+    <div className="relative flex flex-col items-center justify-center min-h-screen w-full bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-500 text-white p-6 overflow-hidden">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-md"></div>
 
-      <div className="users">
-        {connectedUsers.map((user, index) => (
-          <h4 key={user}>
-            👤 User {index + 1}: <code>{user}</code>
-          </h4>
-        ))}
+      <div className="relative z-10 text-center mb-8">
+        <h1 className="text-4xl md:text-5xl font-extrabold mb-2 animate-pulse">
+          ⚡ Simple WebRTC Call App
+        </h1>
+        <p className="text-gray-200 text-lg">
+          Connect. Stream. Communicate in real time.
+        </p>
       </div>
 
-      <div style={{ display: "flex", gap: "10px", margin: "20px" }}>
-        <video ref={localVideoRef} autoPlay playsInline muted width={300} />
-        <video ref={remoteVideoRef} autoPlay playsInline width={300} />
+      <div className="relative z-10 bg-white/10 backdrop-blur-md rounded-2xl shadow-lg p-6 w-full max-w-lg mb-8 border border-white/20">
+        <h3 className="text-lg font-semibold mb-3 text-center">
+          Connected Users
+        </h3>
+        <div className="space-y-2 text-sm">
+          {connectedUsers.length > 0 ? (
+            connectedUsers.map((user, index) => (
+              <div
+                key={user}
+                className="flex items-center justify-between bg-white/20 rounded-lg px-3 py-2 hover:bg-white/30 transition"
+              >
+                <span>👤 User {index + 1}</span>
+                <code className="text-yellow-200">{user}</code>
+              </div>
+            ))
+          ) : (
+            <p className="text-center text-gray-200">No users connected</p>
+          )}
+        </div>
       </div>
+
+      <VideoSection
+        localVideoRef={localVideoRef}
+        remoteVideoRef={remoteVideoRef}
+      />
 
       {!started && (
-        <button onClick={startCall} style={{ padding: "10px 20px" }}>
-          Start Call
+        <button
+          onClick={startCall}
+          className="relative z-10 mt-8 bg-gradient-to-r from-green-400 to-blue-500 hover:from-green-500 hover:to-blue-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition transform hover:scale-105 active:scale-95"
+        >
+          🚀 Start Call
         </button>
       )}
     </div>
