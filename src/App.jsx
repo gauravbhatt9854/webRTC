@@ -15,27 +15,21 @@ function App() {
     const socket = io(import.meta.env.VITE_SIGNALING_SERVER);
     socketRef.current = socket;
 
-    console.log("🟢 Connected to signaling server");
-
+    // Get list of connected users
     socket.on("connected-users", (clients) => {
-      console.log("👥 Connected users:", clients);
       setConnectedUsers(clients);
     });
 
+    // Start call when server signals
     socket.on("initiate-call", () => {
-      console.log("📞 Initiate call triggered");
       startOffer();
     });
 
     socket.on("offer", async (offer) => {
-      console.log("📨 Offer received");
       if (!pcRef.current) pcRef.current = createPeerConnection();
 
       const pc = pcRef.current;
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideoRef.current.srcObject = stream;
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
@@ -46,19 +40,16 @@ function App() {
     });
 
     socket.on("answer", async (answer) => {
-      console.log("📩 Answer received");
       const pc = pcRef.current;
       if (pc) await pc.setRemoteDescription(answer);
     });
 
     socket.on("ice-candidate", async (candidate) => {
-      console.log("❄️ ICE candidate received");
       const pc = pcRef.current;
       if (pc && candidate) await pc.addIceCandidate(candidate);
     });
 
     return () => {
-      console.log("🔴 Disconnecting...");
       socket.disconnect();
       pcRef.current?.close();
     };
@@ -77,13 +68,11 @@ function App() {
     });
 
     pc.ontrack = (event) => {
-      console.log("🎥 Remote stream received");
       remoteVideoRef.current.srcObject = event.streams[0];
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log("📡 Sending ICE candidate");
         socketRef.current.emit("ice-candidate", event.candidate);
       }
     };
@@ -91,28 +80,23 @@ function App() {
     return pc;
   };
 
-  const startCall = async () => {
-    console.log("🟢 Starting call...");
+  const handleStartCall = async (targetUserId) => {
     setStarted(true);
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    socketRef.current.emit("ready");
+
+    // Emit to server: start call with this user
+    socketRef.current.emit("start-call", targetUserId);
+    console.log("📨 Start call request sent to:", targetUserId);
   };
 
   const startOffer = async () => {
-    console.log("📞 Creating offer...");
     if (!pcRef.current) pcRef.current = createPeerConnection();
     const pc = pcRef.current;
 
     const stream =
       localVideoRef.current.srcObject ||
-      (await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      }));
+      (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
 
     if (!localVideoRef.current.srcObject) {
       localVideoRef.current.srcObject = stream;
@@ -133,24 +117,27 @@ function App() {
         <h1 className="text-4xl md:text-5xl font-extrabold mb-2 animate-pulse">
           ⚡ Simple WebRTC Call App
         </h1>
-        <p className="text-gray-200 text-lg">
-          Connect. Stream. Communicate in real time.
-        </p>
+        <p className="text-gray-200 text-lg">Connect. Stream. Communicate in real time.</p>
       </div>
 
+      {/* Connected users list */}
       <div className="relative z-10 bg-white/10 backdrop-blur-md rounded-2xl shadow-lg p-6 w-full max-w-lg mb-8 border border-white/20">
-        <h3 className="text-lg font-semibold mb-3 text-center">
-          Connected Users
-        </h3>
+        <h3 className="text-lg font-semibold mb-3 text-center">Connected Users</h3>
         <div className="space-y-2 text-sm">
           {connectedUsers.length > 0 ? (
-            connectedUsers.map((user, index) => (
+            connectedUsers.map((user) => (
               <div
                 key={user}
                 className="flex items-center justify-between bg-white/20 rounded-lg px-3 py-2 hover:bg-white/30 transition"
               >
-                <span>👤 User {index + 1}</span>
-                <code className="text-yellow-200">{user}</code>
+                <span>👤 {user}</span>
+                {/* Optional: call directly from list */}
+                <button
+                  onClick={() => handleStartCall(user)}
+                  className="bg-green-400 hover:bg-green-500 text-white px-3 py-1 rounded-full text-sm font-semibold transition"
+                >
+                  Start Call
+                </button>
               </div>
             ))
           ) : (
@@ -159,19 +146,15 @@ function App() {
         </div>
       </div>
 
+      {/* Video Section */}
       <VideoSection
         localVideoRef={localVideoRef}
         remoteVideoRef={remoteVideoRef}
+        started={started}
+        onStartCall={() => {
+          if (connectedUsers.length > 0) handleStartCall(connectedUsers[0]);
+        }}
       />
-
-      {!started && (
-        <button
-          onClick={startCall}
-          className="relative z-10 mt-8 bg-gradient-to-r from-green-400 to-blue-500 hover:from-green-500 hover:to-blue-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition transform hover:scale-105 active:scale-95"
-        >
-          🚀 Start Call
-        </button>
-      )}
     </div>
   );
 }
