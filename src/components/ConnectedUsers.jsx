@@ -13,11 +13,11 @@ export default function ConnectedUsers({ users, onStartCall , remoteVideoRef }) 
     if (disabledUsers[socketId]) return; // prevent double click
     onStartCall(socketId);
 
-    // Disable button for 5 seconds
+    // Disable button for 10 seconds
     setDisabledUsers((prev) => ({ ...prev, [socketId]: true }));
     setTimeout(() => {
       setDisabledUsers((prev) => ({ ...prev, [socketId]: false }));
-    }, 5000);
+    }, 10000);
   };
 
   return (
