@@ -26,7 +26,7 @@ export default function IncomingCallModal({ callerEmail, acceptCall, declineCall
 
       <div className="bg-white text-black rounded-xl p-6 w-80 text-center shadow-lg">
         <h2 className="text-lg font-bold mb-2">Incoming Call</h2>
-        <p className="mb-4">📞 {callerEmailstr.substring(0, 8)} is calling you</p>
+        <p className="mb-4">📞 {callerEmail.substring(0, 8)} is calling you</p>
         <div className="flex justify-center gap-4">
           <button
             onClick={() => { audioRef.current.pause(); acceptCall(); }}
