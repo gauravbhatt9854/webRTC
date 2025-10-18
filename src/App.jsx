@@ -34,7 +34,7 @@ function App() {
         </p>
       </div>
 
-      <ConnectedUsers users={connectedUsers} onStartCall={startCall} />
+      <ConnectedUsers users={connectedUsers} onStartCall={startCall} remoteVideoRef={remoteVideoRef} />
 
       {incomingCall && (
         <IncomingCallModal

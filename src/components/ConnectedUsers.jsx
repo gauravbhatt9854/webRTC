@@ -1,11 +1,24 @@
 import { useState } from "react";
+import { useWebRTC } from "../hooks/useWebRTC";
 
-export default function ConnectedUsers({ users, onStartCall }) {
+export default function ConnectedUsers({ users, onStartCall , remoteVideoRef }) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [disabledUsers, setDisabledUsers] = useState({}); // track disabled buttons
 
   const filteredUsers = users.filter((user) =>
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleStartCall = (socketId) => {
+    if (disabledUsers[socketId]) return; // prevent double click
+    onStartCall(socketId);
+
+    // Disable button for 5 seconds
+    setDisabledUsers((prev) => ({ ...prev, [socketId]: true }));
+    setTimeout(() => {
+      setDisabledUsers((prev) => ({ ...prev, [socketId]: false }));
+    }, 5000);
+  };
 
   return (
     <div className="bg-white/10 backdrop-blur-md rounded-2xl shadow-lg w-full max-w-lg mx-auto mb-8 border border-white/20 p-4 px-3 sm:px-4">
@@ -28,10 +41,11 @@ export default function ConnectedUsers({ users, onStartCall }) {
             >
               <span className="truncate text-sm sm:text-base w-full sm:w-auto">👤 {user.email}</span>
               <button
-                onClick={() => onStartCall(user.socketId)}
-                className="bg-green-400 hover:bg-green-500 text-white px-3 py-1 rounded-full text-sm sm:text-base font-semibold transition mt-1 sm:mt-0"
+                onClick={() => handleStartCall(user.socketId)}
+                disabled={disabledUsers[user.socketId]} // disable during timeout
+                className={`bg-green-400 hover:bg-green-500 text-white px-3 py-1 rounded-full text-sm sm:text-base font-semibold transition mt-1 sm:mt-0 disabled:bg-gray-400 disabled:cursor-not-allowed`}
               >
-                Start Call
+                {disabledUsers[user.socketId] ? "Wait..." : "Start Call"}
               </button>
             </div>
           ))
