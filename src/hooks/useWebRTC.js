@@ -100,13 +100,11 @@ export function useWebRTC(email) {
   };
 
   // -------------------- Media utilities --------------------
-  const getVideoStream = async (deviceId = null, facingMode = null) => {
+  const getVideoStream = async (deviceId = null, facingMode = "user") => {
     const constraints = {
       video: deviceId
         ? { deviceId: { exact: deviceId } }
-        : facingMode
-          ? { facingMode } // "user" or "environment"
-          : { facingMode: "user" },
+        : { facingMode },
       audio: true,
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -117,19 +115,25 @@ export function useWebRTC(email) {
   const switchCamera = async () => {
     if (!localVideoRef.current) return;
 
-    const stream = localVideoRef.current.srcObject;
-    if (!stream) return;
+    const oldStream = localVideoRef.current.srcObject;
+    if (!oldStream) return;
 
-    const currentTrack = stream.getVideoTracks()[0];
-    const settings = currentTrack.getSettings();
-    let newFacingMode = settings.facingMode === "user" ? "environment" : "user";
+    const oldTrack = oldStream.getVideoTracks()[0];
+    const oldFacingMode = oldTrack.getSettings().facingMode || "user";
 
+    // Stop old camera track first
+    oldTrack.stop();
+
+    // Toggle facingMode
+    const newFacingMode = oldFacingMode === "user" ? "environment" : "user";
+
+    // Get new stream
     const newStream = await getVideoStream(null, newFacingMode);
     localVideoRef.current.srcObject = newStream;
 
-    const videoTrack = newStream.getVideoTracks()[0];
+    // Replace track in PeerConnection if in call
     const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === "video");
-    if (sender) sender.replaceTrack(videoTrack);
+    if (sender) sender.replaceTrack(newStream.getVideoTracks()[0]);
   };
 
   const toggleVideo = () => {
