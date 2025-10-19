@@ -15,10 +15,16 @@ function App() {
     connectedUsers,
     started,
     incomingCall,
+    mySocketId,
+    videoOn,
+    micOn,
     startCall,
     acceptCall,
     declineCall,
     endCall,
+    switchCamera,
+    toggleVideo,
+    toggleMic,
   } = useWebRTC(email);
 
   return (
@@ -26,9 +32,6 @@ function App() {
       <Navbar />
 
       <div className="relative z-10 text-center mb-8">
-        <h1 className="text-4xl md:text-5xl font-extrabold mb-2 animate-pulse">
-          ⚡ Simple WebRTC Call App
-        </h1>
         <p className="text-gray-200 text-lg">
           Connect. Stream. Communicate in real time.
         </p>
@@ -49,7 +52,13 @@ function App() {
         remoteVideoRef={remoteVideoRef}
         started={started}
         endCall={endCall}
+        switchCamera={switchCamera}
+        toggleVideo={toggleVideo}
+        toggleMic={toggleMic}
+        videoOn={videoOn}
+        micOn={micOn}
       />
+
     </div>
   );
 }

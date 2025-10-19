@@ -8,12 +8,15 @@ export function useWebRTC(email) {
   const socketRef = useRef(null);
   const connectedUsersRef = useRef([]);
   const iceQueueRef = useRef([]);
+  const currentVideoDeviceRef = useRef(null);
 
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [mySocketId, setMySocketId] = useState(null);
   const [started, setStarted] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
   const [targetUser, setTargetUser] = useState(null);
+  const [videoOn, setVideoOn] = useState(true);
+  const [micOn, setMicOn] = useState(true);
 
   useEffect(() => {
     if (!email) return;
@@ -81,6 +84,16 @@ export function useWebRTC(email) {
     return pc;
   };
 
+  const getVideoStream = async (deviceId = null) => {
+    const constraints = {
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" },
+      audio: true,
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    currentVideoDeviceRef.current = stream.getVideoTracks()[0].getSettings().deviceId;
+    return stream;
+  };
+
   const startCall = async (targetId) => {
     if (!targetId) return;
     setTargetUser(targetId);
@@ -88,7 +101,7 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(targetId);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await getVideoStream();
     localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
@@ -107,7 +120,7 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(socketId);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await getVideoStream();
     localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
@@ -118,7 +131,6 @@ export function useWebRTC(email) {
 
     socketRef.current.emit("answer", { answer, targetUserId: socketId });
 
-    // Process queued ICE candidates
     while (iceQueueRef.current.length) {
       const candidate = iceQueueRef.current.shift();
       await pcRef.current.addIceCandidate(candidate);
@@ -144,6 +156,54 @@ export function useWebRTC(email) {
     remoteVideoRef.current.srcObject = null;
   };
 
+  const switchCamera = async () => {
+    if (!localVideoRef.current) return;
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === "videoinput");
+    if (videoDevices.length < 2) return;
+
+    const currentId = currentVideoDeviceRef.current;
+    const currentIndex = videoDevices.findIndex(d => d.deviceId === currentId);
+    const nextIndex = (currentIndex + 1) % videoDevices.length;
+    const nextDeviceId = videoDevices[nextIndex].deviceId;
+
+    const newStream = await getVideoStream(nextDeviceId);
+    localVideoRef.current.srcObject = newStream;
+
+    const videoTrack = newStream.getVideoTracks()[0];
+    const sender = pcRef.current
+      .getSenders()
+      .find(s => s.track && s.track.kind === "video");
+    if (sender) {
+      sender.replaceTrack(videoTrack);
+    }
+  };
+
+  const toggleVideo = () => {
+    if (!localVideoRef.current) return;
+    const stream = localVideoRef.current.srcObject;
+    if (!stream) return;
+
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setVideoOn(videoTrack.enabled);
+    }
+  };
+
+  const toggleMic = () => {
+    if (!localVideoRef.current) return;
+    const stream = localVideoRef.current.srcObject;
+    if (!stream) return;
+
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setMicOn(audioTrack.enabled);
+    }
+  };
+
   return {
     localVideoRef,
     remoteVideoRef,
@@ -151,9 +211,14 @@ export function useWebRTC(email) {
     started,
     incomingCall,
     mySocketId,
+    videoOn,
+    micOn,
     startCall,
     acceptCall,
     declineCall,
     endCall,
+    switchCamera,
+    toggleVideo,
+    toggleMic,
   };
 }

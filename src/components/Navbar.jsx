@@ -37,54 +37,55 @@ export default function Navbar() {
   };
 
   return (
-<nav className="flex justify-end items-center relative bg-white shadow-md rounded-b-lg p-2 sm:p-4">
-  {/* Profile Button */}
-  <button
-    onClick={() => setDropdownOpen(!dropdownOpen)}
-    className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 transition shadow-sm max-w-full truncate"
-  >
-    <span className="font-medium text-gray-800 truncate max-w-[120px] sm:max-w-xs">
-      {email || "Enter your email"}
-    </span>
-    <svg
-      className={`w-4 h-4 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  </button>
+    <nav className="flex justify-end items-center relative bg-white shadow-md rounded-b-lg sm:p-4">
+      {/* Profile Button */}
+      <button
+        onClick={() => setDropdownOpen(!dropdownOpen)}
+        className="flex items-center gap-2 px-4 py-2 rounded-full bg-gray-50 hover:bg-gray-100 transition-shadow shadow-sm max-w-full truncate"
+      >
+        <span className="font-medium text-gray-800 truncate max-w-[120px] sm:max-w-xs">
+          {email || "Enter your email"}
+        </span>
+        <svg
+          className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-  {/* Dropdown */}
-  {dropdownOpen && (
-    <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-lg shadow-lg text-black p-4 z-20 border border-gray-200 max-w-[90vw] sm:max-w-xs">
-      <div className="flex flex-col gap-3 w-full">
-        <input
-          type="email"
-          value={tempEmail}
-          onChange={(e) => setTempEmail(e.target.value)}
-          placeholder="Enter your email"
-          className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-        />
-        <div className="flex justify-end gap-2 flex-wrap">
-          <button
-            onClick={handleCancel}
-            className="px-4 py-2 rounded bg-gray-300 text-gray-600 hover:bg-gray-400 transition shadow-sm"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm"
-          >
-            Save
-          </button>
+      {/* Dropdown */}
+      {dropdownOpen && (
+        <div className="absolute right-0 mt-3 w-72 sm:w-80 bg-white rounded-lg shadow-xl border border-gray-200 text-gray-900 p-5 z-20 max-w-[90vw] sm:max-w-xs">
+          <div className="flex flex-col gap-4 w-full">
+            <input
+              type="email"
+              value={tempEmail}
+              onChange={(e) => setTempEmail(e.target.value)}
+              placeholder="Enter your email"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+            />
+            <div className="flex justify-end gap-3 flex-wrap">
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-shadow shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-shadow shadow-sm"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  )}
-</nav>
+      )}
+    </nav>
+
 
   );
 }
