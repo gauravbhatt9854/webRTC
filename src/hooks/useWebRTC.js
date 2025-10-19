@@ -84,15 +84,44 @@ export function useWebRTC(email) {
     return pc;
   };
 
-  const getVideoStream = async (deviceId = null) => {
+  const getVideoStream = async (deviceId = null, facingMode = null) => {
     const constraints = {
-      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" },
+      video: deviceId
+        ? { deviceId: { exact: deviceId } }
+        : facingMode
+          ? { facingMode } // "user" for front, "environment" for back
+          : { facingMode: "user" },
       audio: true,
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentVideoDeviceRef.current = stream.getVideoTracks()[0].getSettings().deviceId;
     return stream;
   };
+
+  const switchCamera = async () => {
+    if (!localVideoRef.current) return;
+
+    const stream = localVideoRef.current.srcObject;
+    if (!stream) return;
+
+    const currentTrack = stream.getVideoTracks()[0];
+    const settings = currentTrack.getSettings();
+
+    // Determine facingMode for mobile
+    let newFacingMode = settings.facingMode === "user" ? "environment" : "user";
+
+    // Get new stream
+    const newStream = await getVideoStream(null, newFacingMode);
+    localVideoRef.current.srcObject = newStream;
+
+    // Replace track in peer connection
+    const videoTrack = newStream.getVideoTracks()[0];
+    const sender = pcRef.current.getSenders().find(s => s.track && s.track.kind === "video");
+    if (sender) {
+      sender.replaceTrack(videoTrack);
+    }
+  };
+
 
   const startCall = async (targetId) => {
     if (!targetId) return;
@@ -156,29 +185,6 @@ export function useWebRTC(email) {
     remoteVideoRef.current.srcObject = null;
   };
 
-  const switchCamera = async () => {
-    if (!localVideoRef.current) return;
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === "videoinput");
-    if (videoDevices.length < 2) return;
-
-    const currentId = currentVideoDeviceRef.current;
-    const currentIndex = videoDevices.findIndex(d => d.deviceId === currentId);
-    const nextIndex = (currentIndex + 1) % videoDevices.length;
-    const nextDeviceId = videoDevices[nextIndex].deviceId;
-
-    const newStream = await getVideoStream(nextDeviceId);
-    localVideoRef.current.srcObject = newStream;
-
-    const videoTrack = newStream.getVideoTracks()[0];
-    const sender = pcRef.current
-      .getSenders()
-      .find(s => s.track && s.track.kind === "video");
-    if (sender) {
-      sender.replaceTrack(videoTrack);
-    }
-  };
 
   const toggleVideo = () => {
     if (!localVideoRef.current) return;
