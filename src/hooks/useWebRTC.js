@@ -18,6 +18,7 @@ export function useWebRTC(email) {
   const [videoOn, setVideoOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
 
+  // -------------------- Socket & signaling --------------------
   useEffect(() => {
     if (!email) return;
 
@@ -59,6 +60,20 @@ export function useWebRTC(email) {
     };
   }, [email]);
 
+  // -------------------- Pre-call local preview --------------------
+  useEffect(() => {
+    const initLocalPreview = async () => {
+      try {
+        const stream = await getVideoStream();
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      } catch (err) {
+        console.error("Error accessing camera/mic:", err);
+      }
+    };
+    initLocalPreview();
+  }, []);
+
+  // -------------------- Peer Connection --------------------
   const createPeerConnection = (targetId) => {
     const pc = new RTCPeerConnection({
       iceServers: [
@@ -72,7 +87,7 @@ export function useWebRTC(email) {
     });
 
     pc.ontrack = (event) => {
-      remoteVideoRef.current.srcObject = event.streams[0];
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
 
     pc.onicecandidate = (event) => {
@@ -84,12 +99,13 @@ export function useWebRTC(email) {
     return pc;
   };
 
+  // -------------------- Media utilities --------------------
   const getVideoStream = async (deviceId = null, facingMode = null) => {
     const constraints = {
       video: deviceId
         ? { deviceId: { exact: deviceId } }
         : facingMode
-          ? { facingMode } // "user" for front, "environment" for back
+          ? { facingMode } // "user" or "environment"
           : { facingMode: "user" },
       audio: true,
     };
@@ -106,23 +122,39 @@ export function useWebRTC(email) {
 
     const currentTrack = stream.getVideoTracks()[0];
     const settings = currentTrack.getSettings();
-
-    // Determine facingMode for mobile
     let newFacingMode = settings.facingMode === "user" ? "environment" : "user";
 
-    // Get new stream
     const newStream = await getVideoStream(null, newFacingMode);
     localVideoRef.current.srcObject = newStream;
 
-    // Replace track in peer connection
     const videoTrack = newStream.getVideoTracks()[0];
-    const sender = pcRef.current.getSenders().find(s => s.track && s.track.kind === "video");
-    if (sender) {
-      sender.replaceTrack(videoTrack);
+    const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === "video");
+    if (sender) sender.replaceTrack(videoTrack);
+  };
+
+  const toggleVideo = () => {
+    if (!localVideoRef.current) return;
+    const stream = localVideoRef.current.srcObject;
+    if (!stream) return;
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setVideoOn(videoTrack.enabled);
     }
   };
 
+  const toggleMic = () => {
+    if (!localVideoRef.current) return;
+    const stream = localVideoRef.current.srcObject;
+    if (!stream) return;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setMicOn(audioTrack.enabled);
+    }
+  };
 
+  // -------------------- Call functions --------------------
   const startCall = async (targetId) => {
     if (!targetId) return;
     setTargetUser(targetId);
@@ -130,8 +162,8 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(targetId);
 
-    const stream = await getVideoStream();
-    localVideoRef.current.srcObject = stream;
+    const stream = localVideoRef.current?.srcObject || await getVideoStream();
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
     const offer = await pcRef.current.createOffer();
@@ -149,8 +181,8 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(socketId);
 
-    const stream = await getVideoStream();
-    localVideoRef.current.srcObject = stream;
+    const stream = localVideoRef.current?.srcObject || await getVideoStream();
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
     await pcRef.current.setRemoteDescription(offer);
@@ -181,35 +213,11 @@ export function useWebRTC(email) {
     pcRef.current = null;
     setTargetUser(null);
     setStarted(false);
-    localVideoRef.current.srcObject = null;
-    remoteVideoRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
   };
 
-
-  const toggleVideo = () => {
-    if (!localVideoRef.current) return;
-    const stream = localVideoRef.current.srcObject;
-    if (!stream) return;
-
-    const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setVideoOn(videoTrack.enabled);
-    }
-  };
-
-  const toggleMic = () => {
-    if (!localVideoRef.current) return;
-    const stream = localVideoRef.current.srcObject;
-    if (!stream) return;
-
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      setMicOn(audioTrack.enabled);
-    }
-  };
-
+  // -------------------- Return hook --------------------
   return {
     localVideoRef,
     remoteVideoRef,
