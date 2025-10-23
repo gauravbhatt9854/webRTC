@@ -36,12 +36,19 @@ export function useWebRTC(email) {
     });
 
     socket.on("offer", ({ callerId, offer }) => {
-      const caller = connectedUsersRef.current.find(u => u.socketId === callerId);
-      setIncomingCall({ socketId: callerId, email: caller?.email || "Unknown", offer });
+      const caller = connectedUsersRef.current.find(
+        (u) => u.socketId === callerId
+      );
+      setIncomingCall({
+        socketId: callerId,
+        email: caller?.email || "Unknown",
+        offer,
+      });
     });
 
     socket.on("answer", async ({ answer }) => {
-      if (pcRef.current && answer) await pcRef.current.setRemoteDescription(answer);
+      if (pcRef.current && answer)
+        await pcRef.current.setRemoteDescription(answer);
     });
 
     socket.on("ice-candidate", async ({ candidate }) => {
@@ -87,14 +94,60 @@ export function useWebRTC(email) {
     });
 
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+      if (remoteVideoRef.current)
+        remoteVideoRef.current.srcObject = event.streams[0];
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate && targetId) {
-        socketRef.current.emit("ice-candidate", { candidate: event.candidate, targetUserId: targetId });
+        socketRef.current.emit("ice-candidate", {
+          candidate: event.candidate,
+          targetUserId: targetId,
+        });
       }
     };
+
+    // 🟢 Log connection details (STUN / TURN / Local)
+    pc.onconnectionstatechange = () => {
+      console.log("Connection state:", pc.connectionState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE connection state:", pc.iceConnectionState);
+    };
+
+    pc.addEventListener("iceconnectionstatechange", async () => {
+      if (
+        pc.iceConnectionState === "connected" ||
+        pc.iceConnectionState === "completed"
+      ) {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+
+            console.log("✅ Connection Details:");
+            console.log(
+              "Local candidate:",
+              local?.candidateType,
+              local?.ip || local?.address
+            );
+            console.log(
+              "Remote candidate:",
+              remote?.candidateType,
+              remote?.ip || remote?.address
+            );
+
+            // Hindi: Explanation
+            // "host" => Local WiFi ya LAN (Direct connection)
+            // "srflx" => STUN server (NAT hole punching)
+            // "relay" => TURN server (Relay path)
+            // "prflx" => Peer reflexive (rare)
+          }
+        });
+      }
+    });
 
     return pc;
   };
@@ -108,10 +161,12 @@ export function useWebRTC(email) {
       audio: true,
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    currentVideoDeviceRef.current = stream.getVideoTracks()[0].getSettings().deviceId;
+    currentVideoDeviceRef.current =
+      stream.getVideoTracks()[0].getSettings().deviceId;
     return stream;
   };
 
+  // ✅ Cross-Browser Camera Switch (Final)
   const switchCamera = async () => {
     if (!localVideoRef.current) return;
 
@@ -121,19 +176,51 @@ export function useWebRTC(email) {
     const oldTrack = oldStream.getVideoTracks()[0];
     const oldFacingMode = oldTrack.getSettings().facingMode || "user";
 
-    // Stop old camera track first
-    oldTrack.stop();
+    // Stop all old tracks
+    oldStream.getTracks().forEach((track) => track.stop());
 
-    // Toggle facingMode
+    // Toggle between front and back
     const newFacingMode = oldFacingMode === "user" ? "environment" : "user";
 
-    // Get new stream
-    const newStream = await getVideoStream(null, newFacingMode);
-    localVideoRef.current.srcObject = newStream;
+    try {
+      // Try strict facingMode first
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: newFacingMode } },
+        audio: true,
+      });
 
-    // Replace track in PeerConnection if in call
-    const sender = pcRef.current?.getSenders().find(s => s.track && s.track.kind === "video");
-    if (sender) sender.replaceTrack(newStream.getVideoTracks()[0]);
+      localVideoRef.current.srcObject = newStream;
+
+      const sender = pcRef.current
+        ?.getSenders()
+        .find((s) => s.track && s.track.kind === "video");
+
+      if (sender) {
+        await sender.replaceTrack(newStream.getVideoTracks()[0]);
+      }
+
+      console.log(`📸 Switched camera to: ${newFacingMode}`);
+    } catch (err) {
+      console.warn("Camera switch failed (strict mode), retrying:", err);
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: newFacingMode },
+          audio: true,
+        });
+
+        localVideoRef.current.srcObject = fallbackStream;
+
+        const sender = pcRef.current
+          ?.getSenders()
+          .find((s) => s.track && s.track.kind === "video");
+        if (sender)
+          await sender.replaceTrack(fallbackStream.getVideoTracks()[0]);
+
+        console.log(`📸 Fallback camera switch successful: ${newFacingMode}`);
+      } catch (fallbackErr) {
+        console.error("Camera switch failed completely:", fallbackErr);
+      }
+    }
   };
 
   const toggleVideo = () => {
@@ -166,9 +253,11 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(targetId);
 
-    const stream = localVideoRef.current?.srcObject || await getVideoStream();
+    const stream = localVideoRef.current?.srcObject || (await getVideoStream());
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
+    stream
+      .getTracks()
+      .forEach((track) => pcRef.current.addTrack(track, stream));
 
     const offer = await pcRef.current.createOffer();
     await pcRef.current.setLocalDescription(offer);
@@ -185,9 +274,11 @@ export function useWebRTC(email) {
     pcRef.current?.close();
     pcRef.current = createPeerConnection(socketId);
 
-    const stream = localVideoRef.current?.srcObject || await getVideoStream();
+    const stream = localVideoRef.current?.srcObject || (await getVideoStream());
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
+    stream
+      .getTracks()
+      .forEach((track) => pcRef.current.addTrack(track, stream));
 
     await pcRef.current.setRemoteDescription(offer);
 
@@ -207,7 +298,9 @@ export function useWebRTC(email) {
 
   const declineCall = () => {
     if (incomingCall?.socketId) {
-      socketRef.current.emit("decline-call", { targetUserId: incomingCall.socketId });
+      socketRef.current.emit("decline-call", {
+        targetUserId: incomingCall.socketId,
+      });
     }
     setIncomingCall(null);
   };
