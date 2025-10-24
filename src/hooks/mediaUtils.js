@@ -9,21 +9,43 @@ export async function getVideoStream(deviceId = null, facingMode = "user", curre
   return stream;
 }
 
-export async function switchCamera({ pcRef, localVideoRef }) {
+export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef }) {
   const oldStream = localVideoRef.current?.srcObject;
   if (!oldStream) return;
 
-  const oldTrack = oldStream.getVideoTracks()[0];
-  const oldFacing = oldTrack.getSettings().facingMode || "user";
+  // Stop old tracks
   oldStream.getTracks().forEach((t) => t.stop());
-  const newFacing = oldFacing === "user" ? "environment" : "user";
 
   try {
+    // Get all available video devices
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter((d) => d.kind === "videoinput");
+
+    if (videoDevices.length < 2) {
+      console.warn("Only one camera available — cannot switch.");
+      return;
+    }
+
+    // Pick the next camera (cycle through)
+    const currentDeviceId = currentVideoDeviceRef?.current;
+    const currentIndex = videoDevices.findIndex((d) => d.deviceId === currentDeviceId);
+    const nextIndex = (currentIndex + 1) % videoDevices.length;
+    const nextDeviceId = videoDevices[nextIndex].deviceId;
+
+    // Get new stream from next camera
     const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: newFacing } },
+      video: { deviceId: { exact: nextDeviceId } },
       audio: true,
     });
+
+    // Update ref
+    if (currentVideoDeviceRef)
+      currentVideoDeviceRef.current = nextDeviceId;
+
+    // Replace stream in local video element
     localVideoRef.current.srcObject = newStream;
+
+    // Replace track in peer connection
     const sender = pcRef.current
       ?.getSenders()
       .find((s) => s.track?.kind === "video");
@@ -32,6 +54,7 @@ export async function switchCamera({ pcRef, localVideoRef }) {
     console.error("Camera switch failed:", err);
   }
 }
+
 
 export function toggleVideo({ localVideoRef, setVideoOn }) {
   const stream = localVideoRef.current?.srcObject;
