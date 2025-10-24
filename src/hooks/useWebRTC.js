@@ -1,5 +1,18 @@
 import { useState, useRef, useEffect } from "react";
-import { io } from "socket.io-client";
+import { setupSocket } from "./socketSetup";
+import { createPeerConnection } from "./peerConnection";
+import {
+  getVideoStream,
+  switchCamera,
+  toggleVideo,
+  toggleMic,
+} from "./mediaUtils";
+import {
+  startCall,
+  acceptCall,
+  declineCall,
+  endCall,
+} from "./callHandlers";
 
 export function useWebRTC(email) {
   const localVideoRef = useRef(null);
@@ -14,307 +27,37 @@ export function useWebRTC(email) {
   const [mySocketId, setMySocketId] = useState(null);
   const [started, setStarted] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
-  const [targetUser, setTargetUser] = useState(null);
   const [videoOn, setVideoOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
 
-  // -------------------- Socket & signaling --------------------
   useEffect(() => {
     if (!email) return;
-
-    const socket = io(import.meta.env.VITE_SIGNALING_SERVER);
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      setMySocketId(socket.id);
-      socket.emit("register-email", email);
+    const cleanup = setupSocket({
+      email,
+      pcRef,
+      socketRef,
+      connectedUsersRef,
+      setConnectedUsers,
+      setMySocketId,
+      setIncomingCall,
+      endCall: () => endCall({ pcRef, localVideoRef, remoteVideoRef, setStarted }),
+      iceQueueRef,
     });
-
-    socket.on("connected-users", (users) => {
-      setConnectedUsers(users);
-      connectedUsersRef.current = users;
-    });
-
-    socket.on("offer", ({ callerId, offer }) => {
-      const caller = connectedUsersRef.current.find(
-        (u) => u.socketId === callerId
-      );
-      setIncomingCall({
-        socketId: callerId,
-        email: caller?.email || "Unknown",
-        offer,
-      });
-    });
-
-    socket.on("answer", async ({ answer }) => {
-      if (pcRef.current && answer)
-        await pcRef.current.setRemoteDescription(answer);
-    });
-
-    socket.on("ice-candidate", async ({ candidate }) => {
-      if (pcRef.current) {
-        await pcRef.current.addIceCandidate(candidate);
-      } else {
-        iceQueueRef.current.push(candidate);
-      }
-    });
-
-    socket.on("disconnect-call", endCall);
-
-    return () => {
-      socket.disconnect();
-      pcRef.current?.close();
-    };
+    return cleanup;
   }, [email]);
 
-  // -------------------- Pre-call local preview --------------------
+  // Start local preview
   useEffect(() => {
-    const initLocalPreview = async () => {
+    (async () => {
       try {
-        const stream = await getVideoStream();
+        const stream = await getVideoStream(null, "user", currentVideoDeviceRef);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       } catch (err) {
         console.error("Error accessing camera/mic:", err);
       }
-    };
-    initLocalPreview();
+    })();
   }, []);
 
-  // -------------------- Peer Connection --------------------
-  const createPeerConnection = (targetId) => {
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        {
-          urls: import.meta.env.VITE_TURN_URL,
-          username: import.meta.env.VITE_TURN_USERNAME,
-          credential: import.meta.env.VITE_TURN_PASSWORD,
-        },
-      ],
-    });
-
-    pc.ontrack = (event) => {
-      if (remoteVideoRef.current)
-        remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && targetId) {
-        socketRef.current.emit("ice-candidate", {
-          candidate: event.candidate,
-          targetUserId: targetId,
-        });
-      }
-    };
-
-    // 🟢 Log connection details (STUN / TURN / Local)
-    pc.onconnectionstatechange = () => {
-      console.log("Connection state:", pc.connectionState);
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log("ICE connection state:", pc.iceConnectionState);
-    };
-
-    pc.addEventListener("iceconnectionstatechange", async () => {
-      if (
-        pc.iceConnectionState === "connected" ||
-        pc.iceConnectionState === "completed"
-      ) {
-        const stats = await pc.getStats();
-        stats.forEach((report) => {
-          if (report.type === "candidate-pair" && report.state === "succeeded") {
-            const local = stats.get(report.localCandidateId);
-            const remote = stats.get(report.remoteCandidateId);
-
-            console.log("✅ Connection Details:");
-            console.log(
-              "Local candidate:",
-              local?.candidateType,
-              local?.ip || local?.address
-            );
-            console.log(
-              "Remote candidate:",
-              remote?.candidateType,
-              remote?.ip || remote?.address
-            );
-
-            // Hindi: Explanation
-            // "host" => Local WiFi ya LAN (Direct connection)
-            // "srflx" => STUN server (NAT hole punching)
-            // "relay" => TURN server (Relay path)
-            // "prflx" => Peer reflexive (rare)
-          }
-        });
-      }
-    });
-
-    return pc;
-  };
-
-  // -------------------- Media utilities --------------------
-  const getVideoStream = async (deviceId = null, facingMode = "user") => {
-    const constraints = {
-      video: deviceId
-        ? { deviceId: { exact: deviceId } }
-        : { facingMode },
-      audio: true,
-    };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    currentVideoDeviceRef.current =
-      stream.getVideoTracks()[0].getSettings().deviceId;
-    return stream;
-  };
-
-  // ✅ Cross-Browser Camera Switch (Final)
-  const switchCamera = async () => {
-    if (!localVideoRef.current) return;
-
-    const oldStream = localVideoRef.current.srcObject;
-    if (!oldStream) return;
-
-    const oldTrack = oldStream.getVideoTracks()[0];
-    const oldFacingMode = oldTrack.getSettings().facingMode || "user";
-
-    // Stop all old tracks
-    oldStream.getTracks().forEach((track) => track.stop());
-
-    // Toggle between front and back
-    const newFacingMode = oldFacingMode === "user" ? "environment" : "user";
-
-    try {
-      // Try strict facingMode first
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: newFacingMode } },
-        audio: true,
-      });
-
-      localVideoRef.current.srcObject = newStream;
-
-      const sender = pcRef.current
-        ?.getSenders()
-        .find((s) => s.track && s.track.kind === "video");
-
-      if (sender) {
-        await sender.replaceTrack(newStream.getVideoTracks()[0]);
-      }
-
-      console.log(`📸 Switched camera to: ${newFacingMode}`);
-    } catch (err) {
-      console.warn("Camera switch failed (strict mode), retrying:", err);
-      try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: newFacingMode },
-          audio: true,
-        });
-
-        localVideoRef.current.srcObject = fallbackStream;
-
-        const sender = pcRef.current
-          ?.getSenders()
-          .find((s) => s.track && s.track.kind === "video");
-        if (sender)
-          await sender.replaceTrack(fallbackStream.getVideoTracks()[0]);
-
-        console.log(`📸 Fallback camera switch successful: ${newFacingMode}`);
-      } catch (fallbackErr) {
-        console.error("Camera switch failed completely:", fallbackErr);
-      }
-    }
-  };
-
-  const toggleVideo = () => {
-    if (!localVideoRef.current) return;
-    const stream = localVideoRef.current.srcObject;
-    if (!stream) return;
-    const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setVideoOn(videoTrack.enabled);
-    }
-  };
-
-  const toggleMic = () => {
-    if (!localVideoRef.current) return;
-    const stream = localVideoRef.current.srcObject;
-    if (!stream) return;
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      setMicOn(audioTrack.enabled);
-    }
-  };
-
-  // -------------------- Call functions --------------------
-  const startCall = async (targetId) => {
-    if (!targetId) return;
-    setTargetUser(targetId);
-
-    pcRef.current?.close();
-    pcRef.current = createPeerConnection(targetId);
-
-    const stream = localVideoRef.current?.srcObject || (await getVideoStream());
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    stream
-      .getTracks()
-      .forEach((track) => pcRef.current.addTrack(track, stream));
-
-    const offer = await pcRef.current.createOffer();
-    await pcRef.current.setLocalDescription(offer);
-
-    socketRef.current.emit("initiate-call", { targetId, offer });
-    setStarted(true);
-  };
-
-  const acceptCall = async () => {
-    if (!incomingCall) return;
-    const { socketId, offer } = incomingCall;
-    setTargetUser(socketId);
-
-    pcRef.current?.close();
-    pcRef.current = createPeerConnection(socketId);
-
-    const stream = localVideoRef.current?.srcObject || (await getVideoStream());
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    stream
-      .getTracks()
-      .forEach((track) => pcRef.current.addTrack(track, stream));
-
-    await pcRef.current.setRemoteDescription(offer);
-
-    const answer = await pcRef.current.createAnswer();
-    await pcRef.current.setLocalDescription(answer);
-
-    socketRef.current.emit("answer", { answer, targetUserId: socketId });
-
-    while (iceQueueRef.current.length) {
-      const candidate = iceQueueRef.current.shift();
-      await pcRef.current.addIceCandidate(candidate);
-    }
-
-    setIncomingCall(null);
-    setStarted(true);
-  };
-
-  const declineCall = () => {
-    if (incomingCall?.socketId) {
-      socketRef.current.emit("decline-call", {
-        targetUserId: incomingCall.socketId,
-      });
-    }
-    setIncomingCall(null);
-  };
-
-  const endCall = () => {
-    pcRef.current?.close();
-    pcRef.current = null;
-    setTargetUser(null);
-    setStarted(false);
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-  };
-
-  // -------------------- Return hook --------------------
   return {
     localVideoRef,
     remoteVideoRef,
@@ -324,12 +67,31 @@ export function useWebRTC(email) {
     mySocketId,
     videoOn,
     micOn,
-    startCall,
-    acceptCall,
-    declineCall,
-    endCall,
-    switchCamera,
-    toggleVideo,
-    toggleMic,
+    startCall: (targetId) =>
+      startCall({
+        targetId,
+        pcRef,
+        socketRef,
+        localVideoRef,
+        remoteVideoRef,
+        setStarted,
+      }),
+    acceptCall: () =>
+      acceptCall({
+        incomingCall,
+        pcRef,
+        socketRef,
+        localVideoRef,
+        remoteVideoRef,
+        setIncomingCall,
+        setStarted,
+        iceQueueRef,
+      }),
+    declineCall: () => declineCall({ incomingCall, socketRef, setIncomingCall }),
+    endCall: () =>
+      endCall({ pcRef, localVideoRef, remoteVideoRef, setStarted }),
+    switchCamera: () => switchCamera({ pcRef, localVideoRef }),
+    toggleVideo: () => toggleVideo({ localVideoRef, setVideoOn }),
+    toggleMic: () => toggleMic({ localVideoRef, setMicOn }),
   };
 }
