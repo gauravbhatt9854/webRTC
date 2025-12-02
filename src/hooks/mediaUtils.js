@@ -60,6 +60,10 @@ export async function getVideoStream(deviceId) {
 /*********************************************
  * SWITCH CAMERA — CLEAN + DEBUG SAFE LOGS
  *********************************************/
+
+/*********************************************
+ * SWITCH CAMERA — MOBILE SAFE + NO CALL SAFE
+ *********************************************/
 export async function switchCameraRaw({
   pcRef,
   localVideoRef,
@@ -77,11 +81,6 @@ export async function switchCameraRaw({
 
     const currentId = activeCameraRef.current;
     const idx = cameraList.findIndex(c => c.deviceId === currentId);
-
-    if (idx === -1) {
-      console.warn("⚠️ [SwitchCamera] Current camera not in list, fallback to index 0");
-    }
-
     const nextIndex = idx === -1 ? 0 : (idx + 1) % cameraList.length;
     const nextCam = cameraList[nextIndex];
 
@@ -89,16 +88,38 @@ export async function switchCameraRaw({
       `➡️ [SwitchCamera] Switching from: ${currentId} → ${nextCam.deviceId} (${nextCam.label})`
     );
 
+    /***********************
+     * 1. STOP OLD STREAM
+     ***********************/
     const oldStream = localVideoRef.current?.srcObject;
+
     if (oldStream) {
       console.log("🛑 [SwitchCamera] Stopping old stream tracks...");
       oldStream.getTracks().forEach(t => t.stop());
     }
 
-    await new Promise(res => setTimeout(res, 150));
+    // Mobile camera needs time to release
+    await new Promise(res => setTimeout(res, 350));
 
+    /********************************
+     * 2. SAFE GET USER MEDIA (retry)
+     ********************************/
+    async function safeGetUserMedia(constraints) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        console.warn("⏳ Retrying getUserMedia after camera release:", err);
+        await new Promise(res => setTimeout(res, 300));
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      }
+    }
+
+    /***********************
+     * 3. START NEW CAMERA
+     ***********************/
     console.log("🎥 [SwitchCamera] Starting new stream...");
-    const newStream = await navigator.mediaDevices.getUserMedia({
+
+    const newStream = await safeGetUserMedia({
       video: { deviceId: { exact: nextCam.deviceId } },
       audio: true,
     });
@@ -109,26 +130,28 @@ export async function switchCameraRaw({
     activeCameraRef.current = nextCam.deviceId;
     setActiveCamera(nextCam.deviceId);
 
-    console.log("🔧 [SwitchCamera] Updating WebRTC sender track...");
+    /************************************
+     * 4. UPDATE TRACK ONLY IF CALL LIVE
+     ************************************/
     const pc = pcRef.current;
-    if (pc) {
-      const videoSender = pc
-        .getSenders()
-        .find(s => s.track?.kind === "video");
 
-      if (videoSender) {
-        try {
-          const newTrack = newStream.getVideoTracks()[0];
-          await videoSender.replaceTrack(newTrack);
-          console.log("✅ [SwitchCamera] replaceTrack OK");
-        } catch (rErr) {
-          console.error("❌ [SwitchCamera] replaceTrack failed:", rErr);
-        }
-      } else {
-        console.warn("⚠️ [SwitchCamera] No video sender found in RTCPeerConnection");
+    if (!pc) {
+      console.log("ℹ️ [SwitchCamera] No active call → only preview updated.");
+      return;
+    }
+
+    console.log("🔧 [SwitchCamera] Updating WebRTC sender track...");
+    const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
+
+    if (videoSender) {
+      try {
+        await videoSender.replaceTrack(newStream.getVideoTracks()[0]);
+        console.log("✅ [SwitchCamera] replaceTrack OK");
+      } catch (err) {
+        console.error("❌ [SwitchCamera] replaceTrack failed:", err);
       }
     } else {
-      console.warn("⚠️ [SwitchCamera] pcRef is null");
+      console.warn("⚠️ [SwitchCamera] No video sender in RTCPeerConnection");
     }
 
     console.log("✔ [SwitchCamera] DONE");
@@ -137,6 +160,7 @@ export async function switchCameraRaw({
     console.error("🔥 [SwitchCamera] FATAL ERROR:", err);
   }
 }
+
 
 
 /*********************************************
