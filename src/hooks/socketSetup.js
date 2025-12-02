@@ -11,7 +11,10 @@ export function setupSocket({
   endCall,
   iceQueueRef,
 }) {
-  const socket = io(import.meta.env.VITE_SIGNALING_SERVER);
+  const socket = io(import.meta.env.VITE_SIGNALING_SERVER, {
+    transports: ["websocket", "polling"],
+  });
+
   socketRef.current = socket;
 
   socket.on("connect", () => {
@@ -28,6 +31,7 @@ export function setupSocket({
     const caller = connectedUsersRef.current.find(
       (u) => u.socketId === callerId
     );
+
     setIncomingCall({
       socketId: callerId,
       email: caller?.email || "Unknown",
@@ -36,19 +40,47 @@ export function setupSocket({
   });
 
   socket.on("answer", async ({ answer }) => {
-    if (pcRef.current && answer)
+    if (!pcRef.current || !answer) return;
+    try {
       await pcRef.current.setRemoteDescription(answer);
+    } catch (err) {
+      console.error("Error setting remote answer:", err);
+    }
   });
 
   socket.on("ice-candidate", async ({ candidate }) => {
-    if (pcRef.current) await pcRef.current.addIceCandidate(candidate);
-    else iceQueueRef.current.push(candidate);
+    if (!candidate) return;
+
+    if (pcRef.current) {
+      try {
+        await pcRef.current.addIceCandidate(candidate);
+      } catch (err) {
+        console.error("Error adding ICE candidate:", err);
+      }
+    } else {
+      // PC not ready yet → queue it
+      iceQueueRef.current.push(candidate);
+    }
   });
 
-  socket.on("disconnect-call", endCall);
+  socket.on("disconnect-call", () => {
+    endCall();
+  });
 
   return () => {
-    socket.disconnect();
-    pcRef.current?.close();
+    try {
+      socket.disconnect();
+    } catch {
+      /* ignore */
+    }
+
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch {
+        /* ignore */
+      }
+      pcRef.current = null;
+    }
   };
 }

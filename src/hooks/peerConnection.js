@@ -11,12 +11,15 @@ export function createPeerConnection(targetId, socketRef, remoteVideoRef) {
   });
 
   pc.ontrack = (event) => {
-    if (remoteVideoRef?.current)
-      remoteVideoRef.current.srcObject = event.streams[0];
+    if (!remoteVideoRef?.current) return;
+    const [remoteStream] = event.streams;
+    if (remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
   };
 
   pc.onicecandidate = (event) => {
-    if (event.candidate && targetId) {
+    if (event.candidate && targetId && socketRef.current) {
       socketRef.current.emit("ice-candidate", {
         candidate: event.candidate,
         targetUserId: targetId,
@@ -25,7 +28,7 @@ export function createPeerConnection(targetId, socketRef, remoteVideoRef) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log("Connection state:", pc.connectionState);
+    console.log("PeerConnection state:", pc.connectionState);
   };
 
   pc.oniceconnectionstatechange = () => {
@@ -37,14 +40,18 @@ export function createPeerConnection(targetId, socketRef, remoteVideoRef) {
       pc.iceConnectionState === "connected" ||
       pc.iceConnectionState === "completed"
     ) {
-      const stats = await pc.getStats();
-      stats.forEach((report) => {
-        if (report.type === "candidate-pair" && report.state === "succeeded") {
-          const local = stats.get(report.localCandidateId);
-          const remote = stats.get(report.remoteCandidateId);
-          console.log("✅ Connection via:", remote?.candidateType);
-        }
-      });
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+            console.log("✅ Connection via:", remote?.candidateType);
+          }
+        });
+      } catch (err) {
+        console.error("Error reading ICE stats:", err);
+      }
     }
   });
 

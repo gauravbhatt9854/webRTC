@@ -1,6 +1,3 @@
-import { useEffect, useState } from "react";
-import { getCameraList , detectCameras } from "../hooks/mediaUtils"
-
 export default function VideoSection({
   localVideoRef,
   remoteVideoRef,
@@ -12,36 +9,9 @@ export default function VideoSection({
   videoOn,
   micOn,
 }) {
-  const [cameraList, setCameraList] = useState([]);
-
-  useEffect(() => {
-    async function loadCameras() {
-      const cams = await getCameraList();
-      setCameraList(cams);
-    }
-    loadCameras();
-  }, []);
-
-  useEffect(() => {
-  async function load() {
-    const cams = await detectCameras();
-    window.__cams = cams; // store globally
-  }
-  load();
-}, []);
 
   return (
     <div className="flex flex-col items-center gap-6 mt-8 w-full max-w-[90vw]">
-
-      {/* Small Camera List */}
-      {cameraList.length > 0 && (
-        <div className="text-sm text-gray-600">
-          <strong>Cameras:</strong>{" "}
-          {cameraList.map((c, i) => (
-            <span key={i}>{c.label || `Camera ${i + 1}`}{i < cameraList.length - 1 ? ", " : ""}</span>
-          ))}
-        </div>
-      )}
 
       {/* Video Container */}
       <div className="flex flex-col md:flex-row gap-6 w-full justify-center">
@@ -79,7 +49,7 @@ export default function VideoSection({
         </button>
 
         {/* Show Switch Camera ONLY when >1 camera */}
-        {cameraList.length > 1 && (
+        {(
           <button
             onClick={switchCamera}
             className="px-4 py-2 rounded-lg bg-yellow-500 text-white shadow-md hover:bg-yellow-600 transition"

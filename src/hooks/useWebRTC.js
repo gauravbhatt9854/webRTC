@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { setupSocket } from "./socketSetup";
-import { createPeerConnection } from "./peerConnection";
 import {
   getVideoStream,
   switchCamera,
@@ -8,15 +7,16 @@ import {
   toggleMic,
 } from "./mediaUtils";
 import {
-  startCall,
-  acceptCall,
-  declineCall,
-  endCall,
+  startCall as startCallHandler,
+  acceptCall as acceptCallHandler,
+  declineCall as declineCallHandler,
+  endCall as endCallHandler,
 } from "./callHandlers";
 
 export function useWebRTC(email) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+
   const pcRef = useRef(null);
   const socketRef = useRef(null);
   const connectedUsersRef = useRef([]);
@@ -30,8 +30,10 @@ export function useWebRTC(email) {
   const [videoOn, setVideoOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
 
+  // setup signaling socket
   useEffect(() => {
     if (!email) return;
+
     const cleanup = setupSocket({
       email,
       pcRef,
@@ -40,35 +42,60 @@ export function useWebRTC(email) {
       setConnectedUsers,
       setMySocketId,
       setIncomingCall,
-      endCall: () => endCall({ pcRef, localVideoRef, remoteVideoRef, setStarted }),
+      endCall: () =>
+        endCallHandler({
+          pcRef,
+          localVideoRef,
+          remoteVideoRef,
+          setStarted,
+        }),
       iceQueueRef,
     });
+
     return cleanup;
   }, [email]);
 
-  // Start local preview
+  // start local preview once
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
-        const stream = await getVideoStream(null, "user", currentVideoDeviceRef);
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        const stream = await getVideoStream(
+          null,
+          "user",
+          currentVideoDeviceRef
+        );
+        if (!cancelled && localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
       } catch (err) {
         console.error("Error accessing camera/mic:", err);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      const stream = localVideoRef.current?.srcObject;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        localVideoRef.current.srcObject = null;
+      }
+    };
   }, []);
 
   return {
     localVideoRef,
     remoteVideoRef,
     connectedUsers,
+    mySocketId,
     started,
     incomingCall,
-    mySocketId,
     videoOn,
     micOn,
+
     startCall: (targetId) =>
-      startCall({
+      startCallHandler({
         targetId,
         pcRef,
         socketRef,
@@ -76,8 +103,9 @@ export function useWebRTC(email) {
         remoteVideoRef,
         setStarted,
       }),
+
     acceptCall: () =>
-      acceptCall({
+      acceptCallHandler({
         incomingCall,
         pcRef,
         socketRef,
@@ -87,11 +115,39 @@ export function useWebRTC(email) {
         setStarted,
         iceQueueRef,
       }),
-    declineCall: () => declineCall({ incomingCall, socketRef, setIncomingCall }),
+
+    declineCall: () =>
+      declineCallHandler({
+        incomingCall,
+        socketRef,
+        setIncomingCall,
+      }),
+
     endCall: () =>
-      endCall({ pcRef, localVideoRef, remoteVideoRef, setStarted }),
-    switchCamera: () => switchCamera({ pcRef, localVideoRef }),
-    toggleVideo: () => toggleVideo({ localVideoRef, setVideoOn }),
-    toggleMic: () => toggleMic({ localVideoRef, setMicOn }),
+      endCallHandler({
+        pcRef,
+        localVideoRef,
+        remoteVideoRef,
+        setStarted,
+      }),
+
+    switchCamera: () =>
+      switchCamera({
+        pcRef,
+        localVideoRef,
+        currentVideoDeviceRef,
+      }),
+
+    toggleVideo: () =>
+      toggleVideo({
+        localVideoRef,
+        setVideoOn,
+      }),
+
+    toggleMic: () =>
+      toggleMic({
+        localVideoRef,
+        setMicOn,
+      }),
   };
 }
