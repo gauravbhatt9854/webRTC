@@ -27,50 +27,97 @@ export async function switchCamera({
   currentVideoDeviceRef,
 }) {
   try {
-    // list all cams
+    console.log("=== SWITCH CAMERA STARTED ===");
+    debugger;
+
+    // 1️⃣ List all cameras
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter((d) => d.kind === "videoinput");
-    if (cams.length < 2) return;
+
+    console.log("Available cameras:", cams);
+    debugger;
+
+    if (cams.length < 2) {
+      console.warn("Only one camera found");
+      return;
+    }
 
     const currentId = currentVideoDeviceRef.current;
+    console.log("Current camera ID:", currentId);
+    debugger;
 
-    // find next camera
+    // 2️⃣ Find next camera
     const idx = cams.findIndex((c) => c.deviceId === currentId);
-    const nextCam = cams[(idx + 1) % cams.length];
+    console.log("Current index:", idx);
 
-    // get new stream
+    const nextCam = cams[(idx + 1) % cams.length];
+    console.log("Switching to:", nextCam);
+    debugger;
+
+    // 3️⃣ Get NEW STREAM
     const newStream = await navigator.mediaDevices.getUserMedia({
       video: { deviceId: { exact: nextCam.deviceId } },
       audio: true,
     });
 
-    // update local preview
+    console.log("NewStream:", newStream);
+    console.log("New Video Track:", newStream.getVideoTracks()[0]);
+    debugger;
+
+    // 4️⃣ Update local preview
     if (localVideoRef.current) {
+      console.log("Updating local video preview...");
       localVideoRef.current.srcObject = newStream;
+
+      await localVideoRef.current.play().catch((e) => {
+        console.error("Local video play error:", e);
+      });
     }
+    debugger;
 
-    // update ref
+    // 5️⃣ Update ref
     currentVideoDeviceRef.current = nextCam.deviceId;
+    console.log("Updated currentVideoDeviceRef:", currentVideoDeviceRef.current);
+    debugger;
 
-    // replace track for remote
+    // 6️⃣ Replace track for remote
     const newTrack = newStream.getVideoTracks()[0];
     const sender = pcRef.current
       ?.getSenders()
       .find((s) => s.track?.kind === "video");
 
+    console.log("Video sender:", sender);
+    console.log("New track to replace:", newTrack);
+    debugger;
+
     if (sender && newTrack) {
+      console.log("Replacing track...");
       await sender.replaceTrack(newTrack);
+      console.log("Track replaced!");
+    } else {
+      console.warn("Sender or newTrack missing");
+    }
+    debugger;
+
+    // 7️⃣ Stop OLD STREAM
+    const oldStream = localVideoRef.current?.srcObject;
+    console.log("Old stream stops next...");
+    debugger;
+
+    if (oldStream) {
+      oldStream.getTracks().forEach((t) => {
+        console.log("Stopping old track:", t);
+        t.stop();
+      });
     }
 
-    // stop old stream
-    // (simple & safe)
-    const tracks =
-      localVideoRef.current?.srcObject?.getVideoTracks?.() || [];
-    tracks.forEach((t) => t.stop());
+    console.log("=== SWITCH CAMERA DONE ===");
   } catch (error) {
     console.error("Switch camera error:", error);
+    debugger;
   }
 }
+
 
 
 export function toggleVideo({ localVideoRef, setVideoOn }) {
