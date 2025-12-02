@@ -1,147 +1,177 @@
-/*******************************
- * CAMERA HELPERS (ALL-IN-ONE)
- *******************************/
-
-// Filter only REAL usable cameras on phone
-
-
-async function getRealCameras() {
-  const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-
-  const track = tempStream.getVideoTracks()[0];
-  const capabilities = track.getCapabilities();
-  track.stop();
-
-  const devices = await navigator.mediaDevices.enumerateDevices();
-
-  const cams = devices.filter(d => d.kind === "videoinput");
-
-  return cams.filter(cam => {
-    const isFront =
-      cam.label.toLowerCase().includes("front") ||
-      cam.label.toLowerCase().includes("user");
-
-    const isBack =
-      cam.label.toLowerCase().includes("back") ||
-      cam.label.toLowerCase().includes("environment") ||
-      cam.label.toLowerCase().includes("rear");
-
-    return isFront || isBack;
-  });
-}
-
-function filterRealCameras(devices) {
-  return devices.filter((d) => {
-    const label = d.label.toLowerCase();
-
-    return (
-      label.includes("front") ||
-      label.includes("user") ||
-      label.includes("back") ||
-      label.includes("rear") ||
-      label.includes("environment")
-    );
-  });
-}
-
-// Get usable camera list
-
+/*********************************************
+ * GET CAMERA LIST (clean + correct + logs)
+ *********************************************/
 export async function getCameraList() {
+  console.log("📸 [CameraList] Fetching camera list...");
+
   try {
-    // Ask permission so labels become visible
     await navigator.mediaDevices.getUserMedia({ video: true });
+    console.log("🔓 [CameraList] Permission granted, fetching labels...");
 
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter(d => d.kind === "videoinput");
 
-    // Hide only unusable cameras (IR, Depth, Virtual)
-    const realCams = cams.filter(cam => {
-      const label = cam.label.toLowerCase();
+    console.log("📸 [CameraList] Raw detected cameras:", cams);
 
-      // remove useless cameras
+    const real = cams.filter(cam => {
+      const l = cam.label.toLowerCase();
+
       if (
-        label.includes("depth") ||
-        label.includes("infrared") ||
-        label.includes("ir") ||
-        label.includes("virtual") ||
-        label.includes("dummy")
+        l.includes("depth") ||
+        l.includes("infrared") ||
+        l.includes("ir") ||
+        l.includes("virtual") ||
+        l.includes("dummy")
       ) {
+        console.log("⛔ [CameraList] Ignoring unusable camera:", cam.label);
         return false;
       }
-
-      return true; // keep all normal cameras (laptop, phone)
+      return true;
     });
 
-    // If somehow filter returns empty, fallback to all cams
-    if (realCams.length === 0) return cams;
-
-    return realCams;
+    console.log("✅ [CameraList] Usable cameras:", real);
+    return real.length ? real : cams;
   } catch (err) {
-    console.error("Error fetching cameras:", err);
+    console.error("❌ [CameraList] Error:", err);
     return [];
   }
 }
 
-
-
-
-// Start camera stream (simple)
-export async function getVideoStream(deviceId = null, facingMode = "user") {
-  const constraints = {
-    video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode },
-    audio: true,
-  };
-
-  return await navigator.mediaDevices.getUserMedia(constraints);
-}
-
 /*********************************************
- * NEW CLEAN SWITCH CAMERA (index based only)
+ * START CAMERA STREAM (simple + logs)
  *********************************************/
+export async function getVideoStream(deviceId) {
+  console.log("🎥 [getVideoStream] Starting video for device:", deviceId);
 
-export async function switchCamera(deviceId, videoEl, activeStreamRef) {
   try {
-    console.log("Switching to:", deviceId);
-
-    // stop old audio + video tracks
-    if (activeStreamRef.current) {
-      activeStreamRef.current.getTracks().forEach(t => t.stop());
-    }
-
-    // add a slight delay (mobile browsers need it)
-    await new Promise(res => setTimeout(res, 120));
-
-    // start new video input
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId } },
-      audio: false // keep true if you want audio
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: true,
     });
 
-    activeStreamRef.current = newStream;
-    videoEl.srcObject = newStream;
+    console.log("🎉 [getVideoStream] Stream success.");
+    return stream;
   } catch (err) {
-    console.error("Switch camera error:", err);
+    console.error("❌ [getVideoStream] Failed:", err);
+    throw err;
   }
 }
 
 /*********************************************
- * Toggle video/mic
+ * SWITCH CAMERA — CLEAN + DEBUG SAFE LOGS
  *********************************************/
+export async function switchCameraRaw({
+  pcRef,
+  localVideoRef,
+  cameraList,
+  activeCameraRef,
+  setActiveCamera,
+}) {
+  console.log("🔄 [SwitchCamera] REQUEST INIT");
 
+  try {
+    if (!cameraList.length) {
+      console.warn("❌ [SwitchCamera] No cameras available!");
+      return;
+    }
+
+    const currentId = activeCameraRef.current;
+    const idx = cameraList.findIndex(c => c.deviceId === currentId);
+
+    if (idx === -1) {
+      console.warn("⚠️ [SwitchCamera] Current camera not in list, fallback to index 0");
+    }
+
+    const nextIndex = idx === -1 ? 0 : (idx + 1) % cameraList.length;
+    const nextCam = cameraList[nextIndex];
+
+    console.log(
+      `➡️ [SwitchCamera] Switching from: ${currentId} → ${nextCam.deviceId} (${nextCam.label})`
+    );
+
+    const oldStream = localVideoRef.current?.srcObject;
+    if (oldStream) {
+      console.log("🛑 [SwitchCamera] Stopping old stream tracks...");
+      oldStream.getTracks().forEach(t => t.stop());
+    }
+
+    await new Promise(res => setTimeout(res, 150));
+
+    console.log("🎥 [SwitchCamera] Starting new stream...");
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: nextCam.deviceId } },
+      audio: true,
+    });
+
+    console.log("🎉 [SwitchCamera] New stream obtained.");
+    localVideoRef.current.srcObject = newStream;
+
+    activeCameraRef.current = nextCam.deviceId;
+    setActiveCamera(nextCam.deviceId);
+
+    console.log("🔧 [SwitchCamera] Updating WebRTC sender track...");
+    const pc = pcRef.current;
+    if (pc) {
+      const videoSender = pc
+        .getSenders()
+        .find(s => s.track?.kind === "video");
+
+      if (videoSender) {
+        try {
+          const newTrack = newStream.getVideoTracks()[0];
+          await videoSender.replaceTrack(newTrack);
+          console.log("✅ [SwitchCamera] replaceTrack OK");
+        } catch (rErr) {
+          console.error("❌ [SwitchCamera] replaceTrack failed:", rErr);
+        }
+      } else {
+        console.warn("⚠️ [SwitchCamera] No video sender found in RTCPeerConnection");
+      }
+    } else {
+      console.warn("⚠️ [SwitchCamera] pcRef is null");
+    }
+
+    console.log("✔ [SwitchCamera] DONE");
+
+  } catch (err) {
+    console.error("🔥 [SwitchCamera] FATAL ERROR:", err);
+  }
+}
+
+
+/*********************************************
+ * Toggle video/mic (+ logs)
+ *********************************************/
 export function toggleVideo({ localVideoRef, setVideoOn }) {
+  console.log("🎚 [ToggleVideo] Triggered");
+
   const stream = localVideoRef.current?.srcObject;
   const [track] = stream?.getVideoTracks() || [];
-  if (!track) return;
+
+  if (!track) {
+    console.warn("⚠️ [ToggleVideo] No video track found!");
+    return;
+  }
 
   track.enabled = !track.enabled;
+  console.log("▶️ [ToggleVideo] Video now:", track.enabled);
+
   setVideoOn(track.enabled);
 }
 
 export function toggleMic({ localVideoRef, setMicOn }) {
+  console.log("🎚 [ToggleMic] Triggered");
+
   const stream = localVideoRef.current?.srcObject;
   const [track] = stream?.getAudioTracks() || [];
-  if (!track) return;
+
+  if (!track) {
+    console.warn("⚠️ [ToggleMic] No audio track found!");
+    return;
+  }
 
   track.enabled = !track.enabled;
+  console.log("🎤 [ToggleMic] Mic now:", track.enabled);
+
   setMicOn(track.enabled);
 }

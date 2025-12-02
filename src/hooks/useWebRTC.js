@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { setupSocket } from "./socketSetup";
 import {
   getVideoStream,
-  switchCamera as switchCameraRaw,
+  switchCameraRaw,
   toggleVideo,
   toggleMic,
   getCameraList,
@@ -16,12 +16,8 @@ import {
 } from "./callHandlers";
 
 export function useWebRTC(email) {
+  console.log("🟢 useWebRTC initialized for:", email);
 
-  useEffect(() => {
-    getCameraList().then(list => {
-      console.log("YOUR REAL CAMERA LIST:", list);
-    });
-  }, []);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
@@ -30,10 +26,9 @@ export function useWebRTC(email) {
   const connectedUsersRef = useRef([]);
   const iceQueueRef = useRef([]);
 
-  // ⭐ NEW — store camera info in hook itself
   const [cameraList, setCameraList] = useState([]);
   const [activeCamera, setActiveCamera] = useState(null);
-  const activeCameraRef = useRef(null); // logic ke liye fast ref
+  const activeCameraRef = useRef(null);
 
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [mySocketId, setMySocketId] = useState(null);
@@ -43,46 +38,54 @@ export function useWebRTC(email) {
   const [micOn, setMicOn] = useState(true);
 
   /* ----------------------------------------------
-     1) Load camera list & start default preview
+     Load cameras
   ---------------------------------------------- */
-
   useEffect(() => {
+    console.log("📸 [useWebRTC] Initial camera setup...");
+
     async function initCam() {
-      const cams = await getCameraList();
-      setCameraList(cams);
+      try {
+        const cams = await getCameraList();
+        setCameraList(cams);
 
-      // No camera found?
-      if (!cams.length) {
-        console.warn("No real camera found.");
-        return;
-      }
+        if (!cams.length) {
+          console.warn("❌ [useWebRTC] No available camera found.");
+          return;
+        }
 
-      // Default = first REAL camera (usually front)
-      const defaultCam = cams[0];
-      activeCameraRef.current = defaultCam.deviceId;
-      setActiveCamera(defaultCam.deviceId);
+        const defaultCam = cams[0];
+        console.log("🎥 [useWebRTC] Default camera:", defaultCam);
 
-      // Start preview
-      const stream = await getVideoStream(defaultCam.deviceId);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+        activeCameraRef.current = defaultCam.deviceId;
+        setActiveCamera(defaultCam.deviceId);
+
+        const stream = await getVideoStream(defaultCam.deviceId);
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          console.log("🟩 [useWebRTC] Local preview started.");
+        }
+      } catch (err) {
+        console.error("🔥 [useWebRTC] initCam failed:", err);
       }
     }
 
     initCam();
 
     return () => {
+      console.log("🛑 [useWebRTC] Cleaning up camera tracks...");
       const s = localVideoRef.current?.srcObject;
       if (s) s.getTracks().forEach(t => t.stop());
     };
   }, []);
 
-
   /* ----------------------------------------------
-     2) Setup socket signaling
+     Setup socket signaling
   ---------------------------------------------- */
   useEffect(() => {
     if (!email) return;
+
+    console.log("🔌 [useWebRTC] Setting up socket...");
 
     const cleanup = setupSocket({
       email,
@@ -102,13 +105,18 @@ export function useWebRTC(email) {
       iceQueueRef,
     });
 
-    return cleanup;
+    return () => {
+      console.log("🔌 [useWebRTC] Socket cleanup...");
+      cleanup();
+    };
   }, [email]);
 
   /* ----------------------------------------------
-     3) Switch camera — uses hook-level state
+     SWITCH CAMERA
   ---------------------------------------------- */
   async function switchCamera() {
+    console.log("🔁 [useWebRTC] switchCamera() triggered");
+
     await switchCameraRaw({
       pcRef,
       localVideoRef,
@@ -118,6 +126,9 @@ export function useWebRTC(email) {
     });
   }
 
+  /* ----------------------------------------------
+     Return Controls
+  ---------------------------------------------- */
   return {
     localVideoRef,
     remoteVideoRef,
@@ -133,19 +144,21 @@ export function useWebRTC(email) {
     cameraList,
     activeCamera,
 
-    // CALL CONTROLS
-    startCall: (targetId) =>
-      startCallHandler({
+    startCall: (targetId) => {
+      console.log("📞 [useWebRTC] startCall:", targetId);
+      return startCallHandler({
         targetId,
         pcRef,
         socketRef,
         localVideoRef,
         remoteVideoRef,
         setStarted,
-      }),
+      });
+    },
 
-    acceptCall: () =>
-      acceptCallHandler({
+    acceptCall: () => {
+      console.log("📞 [useWebRTC] acceptCall()");
+      return acceptCallHandler({
         incomingCall,
         pcRef,
         socketRef,
@@ -154,26 +167,38 @@ export function useWebRTC(email) {
         setIncomingCall,
         setStarted,
         iceQueueRef,
-      }),
+      });
+    },
 
-    declineCall: () =>
-      declineCallHandler({
+    declineCall: () => {
+      console.log("📵 [useWebRTC] declineCall()");
+      return declineCallHandler({
         incomingCall,
         socketRef,
         setIncomingCall,
-      }),
+      });
+    },
 
-    endCall: () =>
-      endCallHandler({
+    endCall: () => {
+      console.log("❌ [useWebRTC] endCall()");
+      return endCallHandler({
         pcRef,
         localVideoRef,
         remoteVideoRef,
         setStarted,
-      }),
+      });
+    },
 
-    // MEDIA CONTROLS
     switchCamera,
-    toggleVideo: () => toggleVideo({ localVideoRef, setVideoOn }),
-    toggleMic: () => toggleMic({ localVideoRef, setMicOn }),
+
+    toggleVideo: () => {
+      console.log("🎚 [useWebRTC] toggleVideo()");
+      toggleVideo({ localVideoRef, setVideoOn });
+    },
+
+    toggleMic: () => {
+      console.log("🎚 [useWebRTC] toggleMic()");
+      toggleMic({ localVideoRef, setMicOn });
+    },
   };
 }
