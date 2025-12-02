@@ -14,46 +14,71 @@ export async function getCameraList() {
   return devices.filter(d => d.kind === "videoinput");
 }
 
+export async function detectCameras() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const video = devices.filter(d => d.kind === "videoinput");
 
-export async function switchCamera({ pcRef, localVideoRef }) {
+  let front = null;
+  let back = null;
+
+  for (const cam of video) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: cam.deviceId }
+    });
+
+    const track = stream.getVideoTracks()[0];
+    const facing = track.getSettings().facingMode;
+
+    if (facing === "environment") back = cam.deviceId;
+    if (facing === "user") front = cam.deviceId;
+
+    // stop
+    stream.getTracks().forEach(t => t.stop());
+  }
+
+  return { front, back };
+}
+
+export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef }) {
   const oldStream = localVideoRef.current?.srcObject;
   if (!oldStream) return;
 
-  // 1️⃣ Stop all old tracks immediately
-  oldStream.getTracks().forEach(track => track.stop());
+  oldStream.getTracks().forEach(t => t.stop());
 
-  try {
-    // 2️⃣ Detect current facing mode
-    const currentVideoTrack = oldStream.getVideoTracks()[0];
-    const currentFacing = currentVideoTrack?.getSettings()?.facingMode;
-    const isFront = currentFacing === "user";
+  const current = currentVideoDeviceRef.current;
 
-    // 3️⃣ Toggle facing mode (use IDEAL not EXACT)
-    const newFacing = isFront ? "environment" : "user";
+  // if current = front → switch to back
+  // if current = back → switch to front
+  const nextDeviceId =
+    current === window.__cams.front
+      ? window.__cams.back
+      : window.__cams.front;
 
-    // 4️⃣ Request new camera
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: newFacing } },
-      audio: true,
-    });
+  const newStream = await navigator.mediaDevices.getUserMedia({
+    video: { deviceId: { exact: nextDeviceId } },
+    audio: true
+  });
 
-    // 5️⃣ Update local video preview immediately
-    localVideoRef.current.srcObject = newStream;
+  currentVideoDeviceRef.current = nextDeviceId;
+  localVideoRef.current.srcObject = newStream;
 
-    // 6️⃣ Replace track for WebRTC
-    const sender = pcRef.current
-      ?.getSenders()
-      .find(s => s.track?.kind === "video");
+  const sender = pcRef.current
+    ?.getSenders()
+    .find(s => s.track?.kind === "video");
 
-    if (sender) {
-      await sender.replaceTrack(newStream.getVideoTracks()[0]);
-    }
-
-  } catch (err) {
-    console.error("Camera switch failed:", err);
+  if (sender) {
+    await sender.replaceTrack(newStream.getVideoTracks()[0]);
   }
 }
 
+
+useEffect(() => {
+  async function load() {
+    const cams = await detectCameras();
+    window.__cams = cams; // store globally
+  }
+  load();
+}, []);
 
 
 export function toggleVideo({ localVideoRef, setVideoOn }) {
