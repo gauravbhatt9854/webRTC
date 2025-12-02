@@ -14,6 +14,7 @@ export default function VideoSection({
 }) {
   const [cameraList, setCameraList] = useState([]);
 
+  // Load real camera list on mount
   useEffect(() => {
     async function loadCameras() {
       const cams = await getCameraList();
@@ -31,7 +32,7 @@ export default function VideoSection({
           <strong>Cameras:</strong>{" "}
           {cameraList.map((c, i) => (
             <span key={i}>
-              {c.label || `Camera ${i + 1}`} 
+              {c.label}
               {i < cameraList.length - 1 ? ", " : ""}
             </span>
           ))}
@@ -44,19 +45,24 @@ export default function VideoSection({
           ref={localVideoRef}
           autoPlay
           muted
+          playsInline
           className="w-full md:w-96 h-64 md:h-72 bg-black rounded-lg shadow-md"
         />
+
         <video
           ref={remoteVideoRef}
           autoPlay
+          playsInline
           className="w-full md:w-96 h-64 md:h-72 bg-black rounded-lg shadow-md"
         />
       </div>
 
       {/* Controls */}
       <div className="flex gap-4 flex-wrap justify-center mt-4">
+
+        {/* Toggle video */}
         <button
-          onClick={toggleVideo}
+          onClick={() => toggleVideo()}
           className={`px-4 py-2 rounded-lg shadow-md transition ${
             videoOn ? "bg-indigo-600 text-white" : "bg-gray-300 text-gray-700"
           }`}
@@ -64,8 +70,9 @@ export default function VideoSection({
           {videoOn ? "Video On" : "Video Off"}
         </button>
 
+        {/* Toggle mic */}
         <button
-          onClick={toggleMic}
+          onClick={() => toggleMic()}
           className={`px-4 py-2 rounded-lg shadow-md transition ${
             micOn ? "bg-green-600 text-white" : "bg-gray-300 text-gray-700"
           }`}
@@ -73,17 +80,17 @@ export default function VideoSection({
           {micOn ? "Mic On" : "Mic Off"}
         </button>
 
-        {/* Switch Camera Button → show only when >1 camera */}
+        {/* Switch camera */}
         {cameraList.length > 1 && (
-        // {(
           <button
-            onClick={switchCamera}
+            onClick={() => switchCamera()}
             className="px-4 py-2 rounded-lg bg-yellow-500 text-white shadow-md hover:bg-yellow-600 transition"
           >
-            Switch Camera ({cameraList.length})
+            Switch Camera
           </button>
         )}
 
+        {/* End Call */}
         {started && (
           <button
             onClick={endCall}

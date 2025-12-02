@@ -1,3 +1,44 @@
+/*******************************
+ * CAMERA HELPERS (ALL-IN-ONE)
+ *******************************/
+
+// Filter only REAL usable cameras on phone
+function filterRealCameras(devices) {
+  return devices.filter((d) => {
+    const label = d.label.toLowerCase();
+
+    return (
+      label.includes("front") ||
+      label.includes("user") ||
+      label.includes("back") ||
+      label.includes("rear") ||
+      label.includes("environment")
+    );
+  });
+}
+
+// Get usable camera list
+export async function getCameraList() {
+  try {
+    // Ask permission so labels become visible
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter((d) => d.kind === "videoinput");
+
+    const real = filterRealCameras(cams);
+
+    return real.map((cam) => ({
+      deviceId: cam.deviceId,
+      label: cam.label || "Camera",
+    }));
+  } catch (err) {
+    console.error("Error fetching camera list:", err);
+    return [];
+  }
+}
+
+// Start camera stream
 export async function getVideoStream(
   deviceId = null,
   facingMode = "user",
@@ -21,7 +62,7 @@ export async function getVideoStream(
   return stream;
 }
 
-
+// Switch camera (works with OR without call)
 export async function switchCamera({
   pcRef,
   localVideoRef,
@@ -30,92 +71,70 @@ export async function switchCamera({
   try {
     console.log("=== SWITCH CAMERA STARTED ===");
 
-    // 1️⃣ Get all cameras
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter((d) => d.kind === "videoinput");
+    const cams = filterRealCameras(
+      devices.filter((d) => d.kind === "videoinput")
+    );
 
     if (cams.length < 2) {
-      console.warn("Only one camera found");
+      console.warn("Only one usable camera found");
       return;
     }
 
-    // If NO CALL and no camera selected → set default
-    if (!currentVideoDeviceRef.current) {
-      currentVideoDeviceRef.current = cams[0].deviceId;
-    }
-
+    // Detect current camera properly
     let currentId = currentVideoDeviceRef.current;
 
-    // 2️⃣ Find next camera
+    if (!currentId) {
+      const liveTrack = localVideoRef.current?.srcObject?.getVideoTracks?.()[0];
+      const settings = liveTrack?.getSettings();
+
+      currentId = settings?.deviceId || cams[0].deviceId;
+      currentVideoDeviceRef.current = currentId;
+    }
+
+    // Find next camera
     const idx = cams.findIndex((c) => c.deviceId === currentId);
     const nextCam = cams[(idx + 1) % cams.length];
 
-    console.log("Switching to:", nextCam.deviceId);
-
-    // 3️⃣ Stop old stream
+    // Stop old stream
     const old = localVideoRef.current?.srcObject;
-    if (old) {
-      old.getTracks().forEach((t) => t.stop());
-    }
+    if (old) old.getTracks().forEach((t) => t.stop());
 
-    // 4️⃣ Start new stream
-    let newStream;
-    try {
-      newStream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: nextCam.deviceId } },
-        audio: true,
-      });
-    } catch (err) {
-      console.warn("deviceId failed → using facingMode fallback");
+    // Start new stream
+    const newStream = await getVideoStream(
+      nextCam.deviceId,
+      null,
+      currentVideoDeviceRef
+    );
 
-      newStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: nextCam.label.toLowerCase().includes("front")
-            ? "user"
-            : "environment",
-        },
-        audio: true,
-      });
-    }
+    // Update preview
+    localVideoRef.current.srcObject = newStream;
+    await localVideoRef.current.play().catch(() => {});
 
-    // 5️⃣ Update preview
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = newStream;
-      await localVideoRef.current.play().catch(() => { });
-    }
-
-    // Update current device
+    // Update current cam
     currentVideoDeviceRef.current = nextCam.deviceId;
 
-    // 6️⃣ If NO CALL → exit here (preview-only mode)
+    // If no call → done
     if (!pcRef.current) {
-      console.log("No call active → only preview switched");
       console.log("=== SWITCH CAMERA DONE (PREVIEW MODE) ===");
       return;
     }
 
-    // 7️⃣ Replace track ONLY if call is active
+    // Replace track during call
     const newTrack = newStream.getVideoTracks()[0];
     const sender = pcRef.current
       .getSenders()
       .find((s) => s.track?.kind === "video");
 
-    if (sender && newTrack) {
-      console.log("Replacing track...");
-      await sender.replaceTrack(newTrack);
-      console.log("Track replaced!");
-    } else {
-      console.warn("Sender/newTrack missing → no replace");
-    }
+    if (sender && newTrack) await sender.replaceTrack(newTrack);
 
     console.log("=== SWITCH CAMERA DONE ===");
-  } catch (error) {
-    console.error("Switch camera error:", error);
+  } catch (err) {
+    console.error("Switch camera error:", err);
   }
 }
 
-
-
+// Toggle video
 export function toggleVideo({ localVideoRef, setVideoOn }) {
   const stream = localVideoRef.current?.srcObject;
   const [track] = stream?.getVideoTracks() || [];
@@ -125,6 +144,7 @@ export function toggleVideo({ localVideoRef, setVideoOn }) {
   setVideoOn(track.enabled);
 }
 
+// Toggle mic
 export function toggleMic({ localVideoRef, setMicOn }) {
   const stream = localVideoRef.current?.srcObject;
   const [track] = stream?.getAudioTracks() || [];
@@ -132,24 +152,4 @@ export function toggleMic({ localVideoRef, setMicOn }) {
 
   track.enabled = !track.enabled;
   setMicOn(track.enabled);
-}
-
-export async function getCameraList() {
-  try {
-    // First try to get permission → so labels become visible
-    await navigator.mediaDevices.getUserMedia({ video: true });
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-
-    // Filter only video input devices (cameras)
-    const cameras = devices.filter((d) => d.kind === "videoinput");
-
-    return cameras.map((cam) => ({
-      deviceId: cam.deviceId,
-      label: cam.label || "Camera",
-    }));
-  } catch (err) {
-    console.error("Error fetching camera list:", err);
-    return [];
-  }
 }
