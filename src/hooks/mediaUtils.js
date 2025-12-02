@@ -47,30 +47,31 @@ function filterRealCameras(devices) {
 // Get usable camera list
 export async function getCameraList() {
   try {
+    // Ask permission first (so labels become visible)
     await navigator.mediaDevices.getUserMedia({ video: true });
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter((d) => d.kind === "videoinput");
+    const cams = devices.filter(d => d.kind === "videoinput");
 
-    return cams.filter((cam) => {
+    // Only REAL CAMERAS, ignore depth/macro/IR
+    const real = cams.filter(cam => {
       const label = cam.label.toLowerCase();
-
-      const isFront =
+      return (
         label.includes("front") ||
-        label.includes("user");
-
-      const isBack =
+        label.includes("user") ||
         label.includes("back") ||
-        label.includes("environment") ||
-        label.includes("rear");
-
-      return isFront || isBack;
+        label.includes("rear") ||
+        label.includes("environment")
+      );
     });
+
+    return real;
   } catch (err) {
-    console.error("Error fetching camera list:", err);
+    console.error("Error fetching cameras:", err);
     return [];
   }
 }
+
 
 
 // Start camera stream (simple)
@@ -95,53 +96,46 @@ export async function switchCamera({
   setActiveCamera
 }) {
   try {
-    if (!cameraList || cameraList.length < 2) {
-      console.warn("Not enough cameras to switch");
+    if (cameraList.length < 2) {
+      console.warn("Only one real camera");
       return;
     }
 
     const currentId = activeCameraRef.current;
-    const idx = cameraList.findIndex((c) => c.deviceId === currentId);
+    const idx = cameraList.findIndex(c => c.deviceId === currentId);
 
     const nextCam = cameraList[(idx + 1) % cameraList.length];
     console.log("Switching to:", nextCam.deviceId);
 
     const oldStream = localVideoRef.current?.srcObject;
 
-    // ⭐ DO NOT STOP OLD STREAM FIRST — mobile will throw NotReadableError
-
-    // 1️⃣ Start new stream FIRST
+    // Start new stream FIRST (important for mobile)
     const newStream = await navigator.mediaDevices.getUserMedia({
       video: { deviceId: { exact: nextCam.deviceId } },
-      audio: true
+      audio: true,
     });
 
-    // 2️⃣ Update preview instantly
+    // Update preview
     localVideoRef.current.srcObject = newStream;
     await localVideoRef.current.play().catch(() => {});
 
-    // 3️⃣ Update refs
+    // Update active camera
     activeCameraRef.current = nextCam.deviceId;
     setActiveCamera(nextCam.deviceId);
 
-    // 4️⃣ Replace track if call active
-    if (pcRef.current) {
-      const newTrack = newStream.getVideoTracks()[0];
-      const sender = pcRef.current
-        .getSenders()
-        .find((s) => s.track?.kind === "video");
+    // If NOT in call → done
+    if (!pcRef.current) return;
 
-      if (sender) {
-        await sender.replaceTrack(newTrack);
-        console.log("Track replaced");
-      }
-    }
+    // Replace track
+    const newTrack = newStream.getVideoTracks()[0];
+    const sender = pcRef.current
+      .getSenders()
+      .find(s => s.track?.kind === "video");
 
-    // 5️⃣ Now stop old stream (safe)
-    if (oldStream) {
-      oldStream.getTracks().forEach((t) => t.stop());
-    }
+    if (sender) await sender.replaceTrack(newTrack);
 
+    // NOW stop old stream (safe on mobile)
+    if (oldStream) oldStream.getTracks().forEach(t => t.stop());
   } catch (err) {
     console.error("Switch camera error:", err);
   }

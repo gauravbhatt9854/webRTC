@@ -16,6 +16,12 @@ import {
 } from "./callHandlers";
 
 export function useWebRTC(email) {
+
+  useEffect(() => {
+    getCameraList().then(list => {
+      console.log("YOUR REAL CAMERA LIST:", list);
+    });
+  }, []);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
@@ -39,12 +45,19 @@ export function useWebRTC(email) {
   /* ----------------------------------------------
      1) Load camera list & start default preview
   ---------------------------------------------- */
+
   useEffect(() => {
     async function initCam() {
       const cams = await getCameraList();
       setCameraList(cams);
 
-      // DEFAULT CAMERA = cams[0]
+      // No camera found?
+      if (!cams.length) {
+        console.warn("No real camera found.");
+        return;
+      }
+
+      // Default = first REAL camera (usually front)
       const defaultCam = cams[0];
       activeCameraRef.current = defaultCam.deviceId;
       setActiveCamera(defaultCam.deviceId);
@@ -60,9 +73,10 @@ export function useWebRTC(email) {
 
     return () => {
       const s = localVideoRef.current?.srcObject;
-      if (s) s.getTracks().forEach((t) => t.stop());
+      if (s) s.getTracks().forEach(t => t.stop());
     };
   }, []);
+
 
   /* ----------------------------------------------
      2) Setup socket signaling
