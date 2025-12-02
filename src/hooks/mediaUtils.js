@@ -69,70 +69,80 @@ export async function switchCamera({
   currentVideoDeviceRef,
 }) {
   try {
-    console.log("=== SWITCH CAMERA STARTED ===");
+    console.log("=== SWITCH CAMERA TRIGGERED ===");
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = filterRealCameras(
-      devices.filter((d) => d.kind === "videoinput")
-    );
+    const cams = devices.filter((d) => d.kind === "videoinput");
 
     if (cams.length < 2) {
-      console.warn("Only one usable camera found");
+      console.warn("Only one camera available");
       return;
     }
 
-    // Detect current camera properly
-    let currentId = currentVideoDeviceRef.current;
+    // ⭐ Detect current camera ALWAYS from live video stream
+    let activeId = null;
+    const liveTrack =
+      localVideoRef.current?.srcObject?.getVideoTracks?.()[0];
 
-    if (!currentId) {
-      const liveTrack = localVideoRef.current?.srcObject?.getVideoTracks?.()[0];
-      const settings = liveTrack?.getSettings();
-
-      currentId = settings?.deviceId || cams[0].deviceId;
-      currentVideoDeviceRef.current = currentId;
+    if (liveTrack) {
+      const settings = liveTrack.getSettings();
+      activeId = settings.deviceId;
+      console.log("Detected active camera from stream:", activeId);
     }
 
-    // Find next camera
-    const idx = cams.findIndex((c) => c.deviceId === currentId);
-    const nextCam = cams[(idx + 1) % cams.length];
+    // Agar stream not started or activeId null:
+    if (!activeId) {
+      activeId = currentVideoDeviceRef.current || cams[0].deviceId;
+      console.log("Fallback active camera:", activeId);
+    }
 
-    // Stop old stream
-    const old = localVideoRef.current?.srcObject;
-    if (old) old.getTracks().forEach((t) => t.stop());
+    // Find next camera correctly
+    const currentIdx = cams.findIndex((c) => c.deviceId === activeId);
+    const nextCam = cams[(currentIdx + 1) % cams.length];
 
-    // Start new stream
-    const newStream = await getVideoStream(
-      nextCam.deviceId,
-      null,
-      currentVideoDeviceRef
-    );
+    console.log("Switching to:", nextCam.deviceId);
 
-    // Update preview
+    // Stop old tracks before capturing new one
+    const oldStream = localVideoRef.current?.srcObject;
+    if (oldStream) oldStream.getTracks().forEach((t) => t.stop());
+
+    // New Stream
+    let newStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: nextCam.deviceId } },
+      audio: true,
+    });
+
+    // Preview update
     localVideoRef.current.srcObject = newStream;
     await localVideoRef.current.play().catch(() => {});
 
-    // Update current cam
+    // Update ref
     currentVideoDeviceRef.current = nextCam.deviceId;
 
-    // If no call → done
+    // If NO CALL → DONE
     if (!pcRef.current) {
-      console.log("=== SWITCH CAMERA DONE (PREVIEW MODE) ===");
+      console.log("=== SWITCH CAMERA DONE (NO CALL) ===");
       return;
     }
 
-    // Replace track during call
+    // Replace track
     const newTrack = newStream.getVideoTracks()[0];
     const sender = pcRef.current
       .getSenders()
       .find((s) => s.track?.kind === "video");
 
-    if (sender && newTrack) await sender.replaceTrack(newTrack);
+    if (sender) {
+      await sender.replaceTrack(newTrack);
+      console.log("Video track replaced in active call");
+    }
 
     console.log("=== SWITCH CAMERA DONE ===");
-  } catch (err) {
-    console.error("Switch camera error:", err);
+  } catch (error) {
+    console.error("Switch error:", error);
   }
 }
+
+
 
 // Toggle video
 export function toggleVideo({ localVideoRef, setVideoOn }) {
