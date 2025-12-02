@@ -3,6 +3,33 @@
  *******************************/
 
 // Filter only REAL usable cameras on phone
+
+
+async function getRealCameras() {
+  const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+  const track = tempStream.getVideoTracks()[0];
+  const capabilities = track.getCapabilities();
+  track.stop();
+
+  const devices = await navigator.mediaDevices.enumerateDevices();
+
+  const cams = devices.filter(d => d.kind === "videoinput");
+
+  return cams.filter(cam => {
+    const isFront =
+      cam.label.toLowerCase().includes("front") ||
+      cam.label.toLowerCase().includes("user");
+
+    const isBack =
+      cam.label.toLowerCase().includes("back") ||
+      cam.label.toLowerCase().includes("environment") ||
+      cam.label.toLowerCase().includes("rear");
+
+    return isFront || isBack;
+  });
+}
+
 function filterRealCameras(devices) {
   return devices.filter((d) => {
     const label = d.label.toLowerCase();
@@ -25,17 +52,26 @@ export async function getCameraList() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter((d) => d.kind === "videoinput");
 
-    const real = filterRealCameras(cams);
+    return cams.filter((cam) => {
+      const label = cam.label.toLowerCase();
 
-    return real.map((cam) => ({
-      deviceId: cam.deviceId,
-      label: cam.label || "Camera"
-    }));
+      const isFront =
+        label.includes("front") ||
+        label.includes("user");
+
+      const isBack =
+        label.includes("back") ||
+        label.includes("environment") ||
+        label.includes("rear");
+
+      return isFront || isBack;
+    });
   } catch (err) {
     console.error("Error fetching camera list:", err);
     return [];
   }
 }
+
 
 // Start camera stream (simple)
 export async function getVideoStream(deviceId = null, facingMode = "user") {
