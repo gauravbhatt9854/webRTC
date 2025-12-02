@@ -45,32 +45,43 @@ function filterRealCameras(devices) {
 }
 
 // Get usable camera list
+
 export async function getCameraList() {
   try {
-    // Ask permission first (so labels become visible)
+    // Ask permission so labels become visible
     await navigator.mediaDevices.getUserMedia({ video: true });
 
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter(d => d.kind === "videoinput");
 
-    // Only REAL CAMERAS, ignore depth/macro/IR
-    const real = cams.filter(cam => {
+    // Hide only unusable cameras (IR, Depth, Virtual)
+    const realCams = cams.filter(cam => {
       const label = cam.label.toLowerCase();
-      return (
-        label.includes("front") ||
-        label.includes("user") ||
-        label.includes("back") ||
-        label.includes("rear") ||
-        label.includes("environment")
-      );
+
+      // remove useless cameras
+      if (
+        label.includes("depth") ||
+        label.includes("infrared") ||
+        label.includes("ir") ||
+        label.includes("virtual") ||
+        label.includes("dummy")
+      ) {
+        return false;
+      }
+
+      return true; // keep all normal cameras (laptop, phone)
     });
 
-    return real;
+    // If somehow filter returns empty, fallback to all cams
+    if (realCams.length === 0) return cams;
+
+    return realCams;
   } catch (err) {
     console.error("Error fetching cameras:", err);
     return [];
   }
 }
+
 
 
 
