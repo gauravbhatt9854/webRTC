@@ -9,49 +9,50 @@ export async function getVideoStream(deviceId = null, facingMode = "user", curre
   return stream;
 }
 
+export async function getCameraList() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter(d => d.kind === "videoinput");
+}
+
+
 export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef }) {
   const oldStream = localVideoRef.current?.srcObject;
   if (!oldStream) return;
 
   // Stop old tracks
-  oldStream.getTracks().forEach((t) => t.stop());
+  oldStream.getTracks().forEach(t => t.stop());
 
   try {
-    // Get all available video devices
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter((d) => d.kind === "videoinput");
+    // Get current facing mode
+    const currentTrack = oldStream.getVideoTracks()[0];
+    const settings = currentTrack.getSettings();
+    const isFront = settings.facingMode === "user";
 
-    if (videoDevices.length < 2) {
-      console.warn("Only one camera available — cannot switch.");
-      return;
-    }
+    // Toggle camera
+    const newFacingMode = isFront ? "environment" : "user";
 
-    // Pick the next camera (cycle through)
-    const currentDeviceId = currentVideoDeviceRef?.current;
-    const currentIndex = videoDevices.findIndex((d) => d.deviceId === currentDeviceId);
-    const nextIndex = (currentIndex + 1) % videoDevices.length;
-    const nextDeviceId = videoDevices[nextIndex].deviceId;
-
-    // Get new stream from next camera
     const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: nextDeviceId } },
+      video: { facingMode: { exact: newFacingMode } },
       audio: true,
     });
 
-    // Update ref
-    if (currentVideoDeviceRef)
-      currentVideoDeviceRef.current = nextDeviceId;
+    // Update device ref
+    currentVideoDeviceRef.current =
+      newStream.getVideoTracks()[0]?.getSettings()?.deviceId;
 
-    // Replace stream in local video element
+    // Update video element
     localVideoRef.current.srcObject = newStream;
 
     // Replace track in peer connection
     const sender = pcRef.current
       ?.getSenders()
-      .find((s) => s.track?.kind === "video");
-    if (sender) await sender.replaceTrack(newStream.getVideoTracks()[0]);
+      .find(s => s.track?.kind === "video");
+
+    if (sender) {
+      await sender.replaceTrack(newStream.getVideoTracks()[0]);
+    }
   } catch (err) {
-    console.error("Camera switch failed:", err);
+    console.log("Camera switch failed:", err);
   }
 }
 
