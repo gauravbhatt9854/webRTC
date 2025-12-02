@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCameraList } from "../hooks/mediaUtils"
+import { getCameraList , detectCameras } from "../hooks/mediaUtils"
 
 export default function VideoSection({
   localVideoRef,
@@ -21,6 +21,14 @@ export default function VideoSection({
     }
     loadCameras();
   }, []);
+
+  useEffect(() => {
+  async function load() {
+    const cams = await detectCameras();
+    window.__cams = cams; // store globally
+  }
+  load();
+}, []);
 
   return (
     <div className="flex flex-col items-center gap-6 mt-8 w-full max-w-[90vw]">

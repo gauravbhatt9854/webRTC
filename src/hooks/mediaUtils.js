@@ -71,16 +71,6 @@ export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef
   }
 }
 
-
-useEffect(() => {
-  async function load() {
-    const cams = await detectCameras();
-    window.__cams = cams; // store globally
-  }
-  load();
-}, []);
-
-
 export function toggleVideo({ localVideoRef, setVideoOn }) {
   const stream = localVideoRef.current?.srcObject;
   const track = stream?.getVideoTracks()[0];
