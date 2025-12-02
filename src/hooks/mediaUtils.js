@@ -27,58 +27,48 @@ export async function switchCamera({
   currentVideoDeviceRef,
 }) {
   try {
-    // 1️⃣ Get all cameras
+    // list all cams
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter((d) => d.kind === "videoinput");
-
-    if (cams.length < 2) {
-      console.warn("Only one camera found");
-      return;
-    }
+    if (cams.length < 2) return;
 
     const currentId = currentVideoDeviceRef.current;
 
-    // 2️⃣ Get next camera index
-    const currentIndex = cams.findIndex((c) => c.deviceId === currentId);
-    const nextIndex = (currentIndex + 1) % cams.length;
-    const nextDeviceId = cams[nextIndex].deviceId;
+    // find next camera
+    const idx = cams.findIndex((c) => c.deviceId === currentId);
+    const nextCam = cams[(idx + 1) % cams.length];
 
-    console.log("Switching to camera:", nextDeviceId);
-
-    // 3️⃣ Create NEW STREAM FIRST (IMPORTANT)
+    // get new stream
     const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: nextDeviceId } },
+      video: { deviceId: { exact: nextCam.deviceId } },
       audio: true,
     });
 
-    // 4️⃣ SET LOCAL PREVIEW **BEFORE stopping old stream**
+    // update local preview
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = newStream;
-      await localVideoRef.current.play().catch(() => {});
     }
 
-    // 5️⃣ Update current device reference
-    currentVideoDeviceRef.current = nextDeviceId;
+    // update ref
+    currentVideoDeviceRef.current = nextCam.deviceId;
 
-    // 6️⃣ Replace remote video track
-    const videoSender = pcRef.current
+    // replace track for remote
+    const newTrack = newStream.getVideoTracks()[0];
+    const sender = pcRef.current
       ?.getSenders()
       .find((s) => s.track?.kind === "video");
 
-    const newTrack = newStream.getVideoTracks()[0];
-
-    if (videoSender && newTrack) {
-      await videoSender.replaceTrack(newTrack);
+    if (sender && newTrack) {
+      await sender.replaceTrack(newTrack);
     }
 
-    // 7️⃣ STOP old stream AFTER switching local video
-    const oldStream = localVideoRef.current.srcObject;
-    if (oldStream && oldStream !== newStream) {
-      oldStream.getTracks().forEach((t) => t.stop());
-    }
-
-  } catch (err) {
-    console.error("Camera switch failed:", err);
+    // stop old stream
+    // (simple & safe)
+    const tracks =
+      localVideoRef.current?.srcObject?.getVideoTracks?.() || [];
+    tracks.forEach((t) => t.stop());
+  } catch (error) {
+    console.error("Switch camera error:", error);
   }
 }
 
