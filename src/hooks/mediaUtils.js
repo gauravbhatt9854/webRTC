@@ -64,49 +64,53 @@ export async function switchCamera({
       return;
     }
 
-    // Find current index
     const currentId = activeCameraRef.current;
     const idx = cameraList.findIndex((c) => c.deviceId === currentId);
 
-    // Select next camera
     const nextCam = cameraList[(idx + 1) % cameraList.length];
     console.log("Switching to:", nextCam.deviceId);
 
-    // Stop old stream
     const oldStream = localVideoRef.current?.srcObject;
-    if (oldStream) oldStream.getTracks().forEach((t) => t.stop());
 
-    // Start new stream
-    const newStream = await getVideoStream(nextCam.deviceId);
+    // ⭐ DO NOT STOP OLD STREAM FIRST — mobile will throw NotReadableError
 
-    // Preview update
+    // 1️⃣ Start new stream FIRST
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: nextCam.deviceId } },
+      audio: true
+    });
+
+    // 2️⃣ Update preview instantly
     localVideoRef.current.srcObject = newStream;
     await localVideoRef.current.play().catch(() => {});
 
-    // Update current camera state+ref
+    // 3️⃣ Update refs
     activeCameraRef.current = nextCam.deviceId;
     setActiveCamera(nextCam.deviceId);
 
-    // If no call → done
-    if (!pcRef.current) {
-      console.log("Switch camera: preview only");
-      return;
+    // 4️⃣ Replace track if call active
+    if (pcRef.current) {
+      const newTrack = newStream.getVideoTracks()[0];
+      const sender = pcRef.current
+        .getSenders()
+        .find((s) => s.track?.kind === "video");
+
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+        console.log("Track replaced");
+      }
     }
 
-    // Replace track in WebRTC
-    const newTrack = newStream.getVideoTracks()[0];
-    const sender = pcRef.current
-      .getSenders()
-      .find((s) => s.track?.kind === "video");
-
-    if (sender && newTrack) {
-      await sender.replaceTrack(newTrack);
-      console.log("Track replaced in active call");
+    // 5️⃣ Now stop old stream (safe)
+    if (oldStream) {
+      oldStream.getTracks().forEach((t) => t.stop());
     }
+
   } catch (err) {
     console.error("Switch camera error:", err);
   }
 }
+
 
 /*********************************************
  * Toggle video/mic
