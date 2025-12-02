@@ -28,14 +28,10 @@ export async function switchCamera({
 }) {
   try {
     console.log("=== SWITCH CAMERA STARTED ===");
-    debugger;
 
-    // 1️⃣ List all cameras
+    // 1️⃣ Get all available cameras
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter((d) => d.kind === "videoinput");
-
-    console.log("Available cameras:", cams);
-    debugger;
 
     if (cams.length < 2) {
       console.warn("Only one camera found");
@@ -43,80 +39,78 @@ export async function switchCamera({
     }
 
     const currentId = currentVideoDeviceRef.current;
-    console.log("Current camera ID:", currentId);
-    debugger;
 
-    // 2️⃣ Find next camera
+    // 2️⃣ Find next camera in list
     const idx = cams.findIndex((c) => c.deviceId === currentId);
-    console.log("Current index:", idx);
-
     const nextCam = cams[(idx + 1) % cams.length];
-    console.log("Switching to:", nextCam);
-    debugger;
 
-    // 3️⃣ Get NEW STREAM
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: nextCam.deviceId } },
-      audio: true,
-    });
+    console.log("Switching to camera:", nextCam.deviceId);
 
-    console.log("NewStream:", newStream);
-    console.log("New Video Track:", newStream.getVideoTracks()[0]);
-    debugger;
+    // 3️⃣ STOP OLD STREAM FIRST (important for mobile)
+    const oldStream = localVideoRef.current?.srcObject;
+    if (oldStream) {
+      console.log("Stopping old tracks...");
+      oldStream.getTracks().forEach((t) => t.stop());
+    }
 
-    // 4️⃣ Update local preview
-    if (localVideoRef.current) {
-      console.log("Updating local video preview...");
-      localVideoRef.current.srcObject = newStream;
+    console.log("Old tracks stopped.");
 
-      await localVideoRef.current.play().catch((e) => {
-        console.error("Local video play error:", e);
+    // 4️⃣ Start NEW stream (mobile-safe)
+    let newStream;
+
+    try {
+      // Try deviceId first
+      newStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextCam.deviceId } },
+        audio: true,
+      });
+    } catch (err) {
+      console.warn("DeviceId failed, using facingMode fallback...", err);
+
+      // Fallback for Android/iPhone
+      newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: nextCam.label.toLowerCase().includes("front")
+            ? "user"
+            : "environment",
+        },
+        audio: true,
       });
     }
-    debugger;
 
-    // 5️⃣ Update ref
+    console.log("New stream started:", newStream);
+
+    // 5️⃣ Update local preview
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = newStream;
+      await localVideoRef.current.play().catch((err) =>
+        console.error("Local video play failed:", err)
+      );
+    }
+
+    // 6️⃣ Update current camera ref
     currentVideoDeviceRef.current = nextCam.deviceId;
-    console.log("Updated currentVideoDeviceRef:", currentVideoDeviceRef.current);
-    debugger;
 
-    // 6️⃣ Replace track for remote
+    // 7️⃣ Replace track in WebRTC sender
     const newTrack = newStream.getVideoTracks()[0];
     const sender = pcRef.current
       ?.getSenders()
       .find((s) => s.track?.kind === "video");
 
-    console.log("Video sender:", sender);
-    console.log("New track to replace:", newTrack);
-    debugger;
-
     if (sender && newTrack) {
-      console.log("Replacing track...");
+      console.log("Replacing sender track...");
       await sender.replaceTrack(newTrack);
       console.log("Track replaced!");
     } else {
-      console.warn("Sender or newTrack missing");
-    }
-    debugger;
-
-    // 7️⃣ Stop OLD STREAM
-    const oldStream = localVideoRef.current?.srcObject;
-    console.log("Old stream stops next...");
-    debugger;
-
-    if (oldStream) {
-      oldStream.getTracks().forEach((t) => {
-        console.log("Stopping old track:", t);
-        t.stop();
-      });
+      console.warn("Sender/newTrack missing");
     }
 
     console.log("=== SWITCH CAMERA DONE ===");
   } catch (error) {
     console.error("Switch camera error:", error);
-    debugger;
   }
 }
+
 
 
 
