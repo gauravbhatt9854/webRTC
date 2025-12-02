@@ -29,7 +29,7 @@ export async function switchCamera({
   try {
     console.log("=== SWITCH CAMERA STARTED ===");
 
-    // 1️⃣ Get all available cameras
+    // 1️⃣ List cameras
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter((d) => d.kind === "videoinput");
 
@@ -38,36 +38,34 @@ export async function switchCamera({
       return;
     }
 
-    const currentId = currentVideoDeviceRef.current;
+    let currentId = currentVideoDeviceRef.current;
 
-    // 2️⃣ Find next camera in list
+    // If NO CALL → currentId might be null → use cam[0] as default
+    if (!currentId) {
+      currentId = cams[0].deviceId;
+      currentVideoDeviceRef.current = currentId;
+    }
+
+    // 2️⃣ Find next camera
     const idx = cams.findIndex((c) => c.deviceId === currentId);
     const nextCam = cams[(idx + 1) % cams.length];
 
-    console.log("Switching to camera:", nextCam.deviceId);
+    console.log("Switching to:", nextCam.deviceId);
 
-    // 3️⃣ STOP OLD STREAM FIRST (important for mobile)
-    const oldStream = localVideoRef.current?.srcObject;
-    if (oldStream) {
-      console.log("Stopping old tracks...");
-      oldStream.getTracks().forEach((t) => t.stop());
+    // 3️⃣ Stop old stream
+    const old = localVideoRef.current?.srcObject;
+    if (old) {
+      old.getTracks().forEach((t) => t.stop());
     }
 
-    console.log("Old tracks stopped.");
-
-    // 4️⃣ Start NEW stream (mobile-safe)
+    // 4️⃣ Start new stream
     let newStream;
-
     try {
-      // Try deviceId first
       newStream = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: nextCam.deviceId } },
         audio: true,
       });
     } catch (err) {
-      console.warn("DeviceId failed, using facingMode fallback...", err);
-
-      // Fallback for Android/iPhone
       newStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: nextCam.label.toLowerCase().includes("front")
@@ -78,31 +76,29 @@ export async function switchCamera({
       });
     }
 
-    console.log("New stream started:", newStream);
+    // 5️⃣ Update preview
+    localVideoRef.current.srcObject = newStream;
+    await localVideoRef.current.play().catch(() => { });
 
-    // 5️⃣ Update local preview
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = newStream;
-      await localVideoRef.current.play().catch((err) =>
-        console.error("Local video play failed:", err)
-      );
-    }
-
-    // 6️⃣ Update current camera ref
+    // 6️⃣ Save new ID
     currentVideoDeviceRef.current = nextCam.deviceId;
 
-    // 7️⃣ Replace track in WebRTC sender
+    // 7️⃣ If NO CALL → EXIT (do not use replaceTrack)
+    if (!pcRef.current) {
+      console.log("No call active → only preview switched");
+      console.log("=== SWITCH CAMERA DONE (PREVIEW MODE) ===");
+      return;
+    }
+
+    // 8️⃣ Replace track in WebRTC (call active)
     const newTrack = newStream.getVideoTracks()[0];
     const sender = pcRef.current
-      ?.getSenders()
+      .getSenders()
       .find((s) => s.track?.kind === "video");
 
     if (sender && newTrack) {
-      console.log("Replacing sender track...");
       await sender.replaceTrack(newTrack);
-      console.log("Track replaced!");
-    } else {
-      console.warn("Sender/newTrack missing");
+      console.log("Track replaced for call");
     }
 
     console.log("=== SWITCH CAMERA DONE ===");
@@ -110,6 +106,7 @@ export async function switchCamera({
     console.error("Switch camera error:", error);
   }
 }
+
 
 
 

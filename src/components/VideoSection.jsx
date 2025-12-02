@@ -74,8 +74,8 @@ export default function VideoSection({
         </button>
 
         {/* Switch Camera Button → show only when >1 camera */}
-        {/* {cameraList.length > 1 && ( */}
-        {(
+        {cameraList.length > 1 && (
+        // {(
           <button
             onClick={switchCamera}
             className="px-4 py-2 rounded-lg bg-yellow-500 text-white shadow-md hover:bg-yellow-600 transition"
