@@ -99,59 +99,30 @@ export async function getVideoStream(deviceId = null, facingMode = "user") {
  * NEW CLEAN SWITCH CAMERA (index based only)
  *********************************************/
 
-export async function switchCamera({
-  pcRef,
-  localVideoRef,
-  cameraList,
-  activeCameraRef,
-  setActiveCamera
-}) {
+export async function switchCamera(deviceId, videoEl, activeStreamRef) {
   try {
-    if (cameraList.length < 2) {
-      console.warn("Only one real camera");
-      return;
+    console.log("Switching to:", deviceId);
+
+    // stop old audio + video tracks
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(t => t.stop());
     }
 
-    const currentId = activeCameraRef.current;
-    const idx = cameraList.findIndex(c => c.deviceId === currentId);
+    // add a slight delay (mobile browsers need it)
+    await new Promise(res => setTimeout(res, 120));
 
-    const nextCam = cameraList[(idx + 1) % cameraList.length];
-    console.log("Switching to:", nextCam.deviceId);
-
-    const oldStream = localVideoRef.current?.srcObject;
-
-    // Start new stream FIRST (important for mobile)
+    // start new video input
     const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: nextCam.deviceId } },
-      audio: true,
+      video: { deviceId: { exact: deviceId } },
+      audio: false // keep true if you want audio
     });
 
-    // Update preview
-    localVideoRef.current.srcObject = newStream;
-    await localVideoRef.current.play().catch(() => {});
-
-    // Update active camera
-    activeCameraRef.current = nextCam.deviceId;
-    setActiveCamera(nextCam.deviceId);
-
-    // If NOT in call → done
-    if (!pcRef.current) return;
-
-    // Replace track
-    const newTrack = newStream.getVideoTracks()[0];
-    const sender = pcRef.current
-      .getSenders()
-      .find(s => s.track?.kind === "video");
-
-    if (sender) await sender.replaceTrack(newTrack);
-
-    // NOW stop old stream (safe on mobile)
-    if (oldStream) oldStream.getTracks().forEach(t => t.stop());
+    activeStreamRef.current = newStream;
+    videoEl.srcObject = newStream;
   } catch (err) {
     console.error("Switch camera error:", err);
   }
 }
-
 
 /*********************************************
  * Toggle video/mic
