@@ -15,35 +15,32 @@ export async function getCameraList() {
 }
 
 
-export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef }) {
+export async function switchCamera({ pcRef, localVideoRef }) {
   const oldStream = localVideoRef.current?.srcObject;
   if (!oldStream) return;
 
-  // Stop old tracks
-  oldStream.getTracks().forEach(t => t.stop());
+  // 1️⃣ Stop all old tracks immediately
+  oldStream.getTracks().forEach(track => track.stop());
 
   try {
-    // Get current facing mode
-    const currentTrack = oldStream.getVideoTracks()[0];
-    const settings = currentTrack.getSettings();
-    const isFront = settings.facingMode === "user";
+    // 2️⃣ Detect current facing mode
+    const currentVideoTrack = oldStream.getVideoTracks()[0];
+    const currentFacing = currentVideoTrack?.getSettings()?.facingMode;
+    const isFront = currentFacing === "user";
 
-    // Toggle camera
-    const newFacingMode = isFront ? "environment" : "user";
+    // 3️⃣ Toggle facing mode (use IDEAL not EXACT)
+    const newFacing = isFront ? "environment" : "user";
 
+    // 4️⃣ Request new camera
     const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: newFacingMode } },
+      video: { facingMode: { ideal: newFacing } },
       audio: true,
     });
 
-    // Update device ref
-    currentVideoDeviceRef.current =
-      newStream.getVideoTracks()[0]?.getSettings()?.deviceId;
-
-    // Update video element
+    // 5️⃣ Update local video preview immediately
     localVideoRef.current.srcObject = newStream;
 
-    // Replace track in peer connection
+    // 6️⃣ Replace track for WebRTC
     const sender = pcRef.current
       ?.getSenders()
       .find(s => s.track?.kind === "video");
@@ -51,10 +48,12 @@ export async function switchCamera({ pcRef, localVideoRef, currentVideoDeviceRef
     if (sender) {
       await sender.replaceTrack(newStream.getVideoTracks()[0]);
     }
+
   } catch (err) {
-    console.log("Camera switch failed:", err);
+    console.error("Camera switch failed:", err);
   }
 }
+
 
 
 export function toggleVideo({ localVideoRef, setVideoOn }) {
