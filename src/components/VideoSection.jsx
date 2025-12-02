@@ -26,19 +26,6 @@ export default function VideoSection({
   return (
     <div className="flex flex-col items-center gap-6 mt-8 w-full max-w-[90vw]">
 
-      {/* Camera List */}
-      {cameraList.length > 0 && (
-        <div className="text-sm text-gray-600">
-          <strong>Cameras:</strong>{" "}
-          {cameraList.map((c, i) => (
-            <span key={i}>
-              {c.label}
-              {i < cameraList.length - 1 ? ", " : ""}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Video Container */}
       <div className="flex flex-col md:flex-row gap-6 w-full justify-center">
         <video
