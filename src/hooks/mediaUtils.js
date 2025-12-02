@@ -26,51 +26,62 @@ export async function switchCamera({
   localVideoRef,
   currentVideoDeviceRef,
 }) {
-  const oldStream = localVideoRef.current?.srcObject;
-  if (!oldStream) return;
+  try {
+    // 1️⃣ Get all cameras
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter((d) => d.kind === "videoinput");
 
-  // stop old tracks
-  oldStream.getTracks().forEach((t) => t.stop());
-
-  const currentId = currentVideoDeviceRef?.current;
-
-  // assumes window.__cams.front / window.__cams.back are set somewhere else
-  const nextDeviceId =
-    currentId && window.__cams
-      ? currentId === window.__cams.front
-        ? window.__cams.back
-        : window.__cams.front
-      : null;
-
-  const constraints = nextDeviceId
-    ? { video: { deviceId: { exact: nextDeviceId } }, audio: true }
-    : { video: true, audio: true };
-
-  const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-  if (currentVideoDeviceRef) {
-    const videoTrack = newStream.getVideoTracks()[0];
-    const settings = videoTrack?.getSettings();
-    if (settings?.deviceId) {
-      currentVideoDeviceRef.current = settings.deviceId;
+    if (cams.length < 2) {
+      console.warn("Only one camera found");
+      return;
     }
-  }
 
-  if (localVideoRef.current) {
-    localVideoRef.current.srcObject = newStream;
-  }
+    const currentId = currentVideoDeviceRef.current;
 
-  const videoSender = pcRef.current
-    ?.getSenders()
-    .find((s) => s.track?.kind === "video");
+    // 2️⃣ Get next camera index
+    const currentIndex = cams.findIndex((c) => c.deviceId === currentId);
+    const nextIndex = (currentIndex + 1) % cams.length;
+    const nextDeviceId = cams[nextIndex].deviceId;
 
-  if (videoSender) {
-    const newVideoTrack = newStream.getVideoTracks()[0];
-    if (newVideoTrack) {
-      await videoSender.replaceTrack(newVideoTrack);
+    console.log("Switching to camera:", nextDeviceId);
+
+    // 3️⃣ Create NEW STREAM FIRST (IMPORTANT)
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: nextDeviceId } },
+      audio: true,
+    });
+
+    // 4️⃣ SET LOCAL PREVIEW **BEFORE stopping old stream**
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = newStream;
+      await localVideoRef.current.play().catch(() => {});
     }
+
+    // 5️⃣ Update current device reference
+    currentVideoDeviceRef.current = nextDeviceId;
+
+    // 6️⃣ Replace remote video track
+    const videoSender = pcRef.current
+      ?.getSenders()
+      .find((s) => s.track?.kind === "video");
+
+    const newTrack = newStream.getVideoTracks()[0];
+
+    if (videoSender && newTrack) {
+      await videoSender.replaceTrack(newTrack);
+    }
+
+    // 7️⃣ STOP old stream AFTER switching local video
+    const oldStream = localVideoRef.current.srcObject;
+    if (oldStream && oldStream !== newStream) {
+      oldStream.getTracks().forEach((t) => t.stop());
+    }
+
+  } catch (err) {
+    console.error("Camera switch failed:", err);
   }
 }
+
 
 export function toggleVideo({ localVideoRef, setVideoOn }) {
   const stream = localVideoRef.current?.srcObject;
@@ -88,4 +99,24 @@ export function toggleMic({ localVideoRef, setMicOn }) {
 
   track.enabled = !track.enabled;
   setMicOn(track.enabled);
+}
+
+export async function getCameraList() {
+  try {
+    // First try to get permission → so labels become visible
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    // Filter only video input devices (cameras)
+    const cameras = devices.filter((d) => d.kind === "videoinput");
+
+    return cameras.map((cam) => ({
+      deviceId: cam.deviceId,
+      label: cam.label || "Camera",
+    }));
+  } catch (err) {
+    console.error("Error fetching camera list:", err);
+    return [];
+  }
 }
