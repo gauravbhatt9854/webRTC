@@ -8,6 +8,6 @@ export default defineConfig({
   preview: {
     port: 4173,              // same port as exposed in Docker
     host: true,              // listen on all interfaces (0.0.0.0)
-    allowedHosts: ['vc.golu.codes'], // allow your domain
+    allowedHosts: ['vc.9854.me'], // allow your domain
   },
 })
